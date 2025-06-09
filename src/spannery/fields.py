@@ -7,7 +7,6 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from google.cloud.spanner_v1 import JsonObject
-from spannery.utils import utcnow
 
 
 class Field:
@@ -182,6 +181,7 @@ class DateTimeField(Field):
 
         # For auto_now fields, return current time regardless of input
         if self.auto_now:
+            from spannery.utils import utcnow
             return utcnow()
 
         if isinstance(value, str):
@@ -191,6 +191,7 @@ class DateTimeField(Field):
             except ValueError:
                 # If not a valid ISO format, and we have auto fields, use current time
                 if self.auto_now_add:
+                    from spannery.utils import utcnow
                     return utcnow()
                 # Otherwise re-raise
                 raise
