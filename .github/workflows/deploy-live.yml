@@ -28,7 +28,6 @@ jobs:
 
   run-unit-tests:
     needs: run-pre-commit
-  run-unit-tests:
     uses: Harbour-Enterprises/spannery/.github/workflows/run-unit-tests.yml@main
     with:
       source_branch: ${{ github.head_ref }}
