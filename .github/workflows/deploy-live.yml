@@ -23,6 +23,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  run-pre-commit:
+    uses: Harbour-Enterprises/spannery/.github/workflows/pre-commit.yml@main
+
+  run-unit-tests:
+    needs: run-pre-commit
   run-unit-tests:
     uses: Harbour-Enterprises/spannery/.github/workflows/run-unit-tests.yml@main
     with:
