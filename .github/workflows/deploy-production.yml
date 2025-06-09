@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   run-unit-tests:
-    uses: caiopizzol/spanner-elixir/.github/workflows/run-unit-tests.yml@main
+    uses: Harbour-Enterprises/spannery/.github/workflows/run-unit-tests.yml@main
     with:
       source_branch: ${{ github.head_ref }}
       source_folder: "src"
@@ -35,7 +35,7 @@ jobs:
     needs: run-unit-tests
     permissions:
       contents: write
-    uses: caiopizzol/spanner-elixir/.github/workflows/publish-package.yml@main
+    uses: Harbour-Enterprises/spannery/.github/workflows/publish-package.yml@main
     with:
       bump_version: ${{ inputs.bump_version }}
       version_update: ${{ inputs.version }}

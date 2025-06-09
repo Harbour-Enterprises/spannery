@@ -30,7 +30,7 @@ on:
         description: "Source repository to be checked out from"
         required: true
         type: string
-        default: "caiopizzol/spanner-elixir"
+        default: "Harbour-Enterprises/spannery"
       source_branch:
         description: "Source branch to be checked out from"
         required: true
