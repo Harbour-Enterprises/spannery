@@ -1,4 +1,4 @@
-name: 🔬 Deploy staging version [auto]
+name: 🔬 Deploy TestPyPi version [auto]
 
 on:
   workflow_dispatch:

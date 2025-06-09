@@ -1,4 +1,4 @@
-name: 🧪️ Deploy livetest version [auto]
+name: 🔍 PR check [auto]
 
 on:
   workflow_dispatch:
@@ -16,12 +16,16 @@ on:
       - "pyproject.toml"
 
 concurrency:
-  group: livetest-${{ github.event.pull_request.number || github.ref }} # Cancel previous livetest deployments
+  group: livetest-${{ github.event.pull_request.number || github.ref }} # Cancel previous pr-check runs
   cancel-in-progress: true
 
 #Actions
 jobs:
+  run-pre-commit:
+    uses: Harbour-Enterprises/spannery/.github/workflows/pre-commit.yml@main
+
   run-unit-tests:
+    needs: run-pre-commit
     uses: Harbour-Enterprises/spannery/.github/workflows/run-unit-tests.yml@main
     with:
       source_branch: ${{ github.head_ref }}

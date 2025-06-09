@@ -1,4 +1,4 @@
-name: 🚀 Deploy production version [manual]
+name: 🚀 Deploy PyPi version [manual]
 
 on:
   workflow_dispatch:
