@@ -162,11 +162,11 @@ build:
 
 publish-test: build
 	@echo "\n> 🌐 Uploading package to Test PyPi...\n"
-	python -m twine upload --repository spannerelixir-test src/dist/*
+	python -m twine upload --repository spannery-test src/dist/*
 
 publish: build
 	@echo "\n> 🌐 Uploading package to PyPi...\n"
-	python -m twine upload --repository spannerelixir src/dist/*
+	python -m twine upload --repository spannery src/dist/*
 
 .PHONY: help install install-build test benchmark tox tox-py-% diff-cover diff-cover-only \
 	fmt sort freeze clean clean-build build publish publish-test \

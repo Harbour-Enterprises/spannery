@@ -1,3 +1,3 @@
-# SpannerElixir is a lightweight ORM alternative to SQLAlchemy
+# Spannery is a lightweight ORM alternative to SQLAlchemy
 # specifically designed for Google Cloud Spanner
 google-cloud-spanner>=3.0.0

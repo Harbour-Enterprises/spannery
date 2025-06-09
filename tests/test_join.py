@@ -317,7 +317,7 @@ def test_build_query_with_joins():
     query = Query(OrganizationUser, mock_db)
 
     # Add the join through a patched get_model_class
-    with patch("spannerelixir.utils.get_model_class") as mock_get_model_class:
+    with patch("spannery.utils.get_model_class") as mock_get_model_class:
         # Mock User class
         mock_user_class = MagicMock()
         mock_user_class._table_name = "Users"
