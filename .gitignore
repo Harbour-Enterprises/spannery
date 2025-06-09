@@ -1,0 +1,15 @@
+.DS_Store
+.vscode/
+dist/
+usepolvo.egg-info/
+.env
+Pipfile*
+*.log
+__pycache__/
+.pytest_cache/
+dev/
+*.egg-info/
+.coverage.*
+.coverage
+.tox/
+.cursor/rules/

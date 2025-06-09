@@ -1,0 +1,5 @@
+diff_cover
+pytest-benchmark
+pytest-cov
+pytest
+tox
