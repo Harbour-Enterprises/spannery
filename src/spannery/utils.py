@@ -114,47 +114,6 @@ def build_param_types(params: dict[str, Any]) -> dict[str, Type]:
     return param_types
 
 
-def verify_relation_exists(
-    database: Database,
-    table_name: str,
-    primary_key_columns: list[str],
-    primary_key_values: list[Any],
-) -> bool:
-    """
-    Verify that a relation exists in the database.
-
-    Args:
-        database: Spanner database instance
-        table_name: Table name to check
-        primary_key_columns: List of primary key column names
-        primary_key_values: List of primary key values
-
-    Returns:
-        bool: True if relation exists
-    """
-    if len(primary_key_columns) != len(primary_key_values):
-        raise ValueError("Number of primary key columns must match number of primary key values")
-
-    params = {}
-    param_types = {}
-    where_conditions = []
-
-    for i, (col, val) in enumerate(zip(primary_key_columns, primary_key_values, strict=False)):
-        param_name = f"pk_{i}"
-        params[param_name] = val
-        param_types[param_name] = get_param_type(val)
-        where_conditions.append(f"{col} = @{param_name}")
-
-    where_clause = " AND ".join(where_conditions)
-    sql = f"SELECT COUNT(*) FROM {table_name} WHERE {where_clause}"  # nosec B608
-
-    with database.snapshot() as snapshot:
-        result = snapshot.execute_sql(sql, params=params, param_types=param_types)
-        count = list(result)[0][0]
-
-    return count > 0
-
-
 def execute_with_retry(
     database: Database, operation_func, max_attempts: int = 3, retry_delay: float = 1.0
 ) -> Any:
@@ -200,84 +159,6 @@ def execute_with_retry(
 
     # If we get here, all attempts failed
     raise last_exception if last_exception else RuntimeError("Unknown error in execute_with_retry")
-
-
-def get_table_schema(database: Database, table_name: str) -> list[dict[str, Any]]:
-    """
-    Get schema information for a table.
-
-    Args:
-        database: Spanner database instance
-        table_name: Table name to get schema for
-
-    Returns:
-        List[Dict]: List of column definitions
-    """
-    sql = """
-    SELECT
-        COLUMN_NAME,
-        SPANNER_TYPE,
-        IS_NULLABLE,
-        COLUMN_DEFAULT
-    FROM
-        INFORMATION_SCHEMA.COLUMNS
-    WHERE
-        TABLE_NAME = @table_name
-    ORDER BY
-        ORDINAL_POSITION
-    """
-
-    params = {"table_name": table_name}
-    param_types = {"table_name": Type(code="STRING")}
-
-    columns = []
-    with database.snapshot() as snapshot:
-        results = snapshot.execute_sql(sql, params=params, param_types=param_types)
-        for row in results:
-            column = {
-                "name": row[0],
-                "type": row[1],
-                "nullable": row[2] == "YES",
-                "default": row[3],
-            }
-            columns.append(column)
-
-    return columns
-
-
-def get_primary_keys(database: Database, table_name: str) -> list[str]:
-    """
-    Get primary key column names for a table.
-
-    Args:
-        database: Spanner database instance
-        table_name: Table name to get primary keys for
-
-    Returns:
-        List[str]: List of primary key column names in order
-    """
-    sql = """
-    SELECT
-        COLUMN_NAME
-    FROM
-        INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-    WHERE
-        TABLE_NAME = @table_name
-        AND CONSTRAINT_NAME = 'PRIMARY_KEY'
-    ORDER BY
-        ORDINAL_POSITION
-    """
-
-    params = {"table_name": table_name}
-    param_types = {"table_name": Type(code="STRING")}
-
-    primary_keys = []
-    with database.snapshot() as snapshot:
-        results = snapshot.execute_sql(sql, params=params, param_types=param_types)
-        for row in results:
-            primary_keys.append(row[0])
-
-    return primary_keys
 
 
 def create_spanner_client(

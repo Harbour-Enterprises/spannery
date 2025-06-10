@@ -1,30 +1,40 @@
 """
-Spannery - An elegant ORM for Google Cloud Spanner
+Spannery - A simple ORM for Google Cloud Spanner
 """
 
 from spannery.fields import (
-    BooleanField,
-    DateTimeField,
-    FloatField,
+    ArrayField,
+    BoolField,
+    BytesField,
+    DateField,
+    Float64Field,
     ForeignKeyField,
-    IntegerField,
+    Int64Field,
     JsonField,
+    NumericField,
     StringField,
+    TimestampField,
 )
 from spannery.model import SpannerModel
 from spannery.query import JoinType, Query
 from spannery.session import SpannerSession
 
+__version__ = "0.2.0"
+
 __all__ = [
-    "BooleanField",
-    "DateTimeField",
-    "FloatField",
-    "IntegerField",
-    "JsonField",
-    "StringField",
-    "ForeignKeyField",
     "SpannerModel",
     "SpannerSession",
     "Query",
     "JoinType",
+    "StringField",
+    "Int64Field",
+    "NumericField",
+    "BoolField",
+    "TimestampField",
+    "DateField",
+    "Float64Field",
+    "BytesField",
+    "JsonField",
+    "ArrayField",
+    "ForeignKeyField",
 ]

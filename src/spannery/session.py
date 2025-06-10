@@ -5,6 +5,7 @@ Session management for Spannery.
 from contextlib import contextmanager
 from typing import TypeVar
 
+from google.cloud.spanner_v1 import RequestOptions
 from google.cloud.spanner_v1.database import Database
 
 from spannery.exceptions import ConnectionError, TransactionError
@@ -22,7 +23,7 @@ class SpannerSession:
 
     Example:
         session = SpannerSession(database)
-        product = Product(Name="Test Product", Price=10.99)
+        product = Product(name="Test Product", price=10.99)
         session.save(product)
     """
 
@@ -35,35 +36,67 @@ class SpannerSession:
         """
         self.database = database
 
-    def save(self, model: SpannerModel, transaction=None) -> SpannerModel:
+    def save(self, model: SpannerModel, transaction=None, request_tag: str = None) -> SpannerModel:
         """
         Save a model to the database (insert).
 
         Args:
             model: Model instance to save
             transaction: Optional transaction to use
+            request_tag: Optional request tag for monitoring
 
         Returns:
             Model: The saved model instance
         """
         try:
-            return model.save(self.database, transaction)
+            # Create request options if tag provided
+            request_options = RequestOptions(request_tag=request_tag) if request_tag else None
+
+            if transaction:
+                return model.save(self.database, transaction)
+            else:
+                # Use request options if provided
+                if request_options:
+                    with self.database.batch(request_options=request_options) as batch:
+                        model._transaction = batch
+                        result = model.save(self.database, batch)
+                        model._transaction = None
+                        return result
+                else:
+                    return model.save(self.database)
         except Exception as e:
             raise TransactionError(f"Error saving {model.__class__.__name__}: {str(e)}") from e
 
-    def update(self, model: SpannerModel, transaction=None) -> SpannerModel:
+    def update(
+        self, model: SpannerModel, transaction=None, request_tag: str = None
+    ) -> SpannerModel:
         """
         Update a model in the database.
 
         Args:
             model: Model instance to update
             transaction: Optional transaction to use
+            request_tag: Optional request tag for monitoring
 
         Returns:
             Model: The updated model instance
         """
         try:
-            return model.update(self.database, transaction)
+            # Create request options if tag provided
+            request_options = RequestOptions(request_tag=request_tag) if request_tag else None
+
+            if transaction:
+                return model.update(self.database, transaction)
+            else:
+                # Use request options if provided
+                if request_options:
+                    with self.database.batch(request_options=request_options) as batch:
+                        model._transaction = batch
+                        result = model.update(self.database, batch)
+                        model._transaction = None
+                        return result
+                else:
+                    return model.update(self.database)
         except Exception as e:
             raise TransactionError(f"Error updating {model.__class__.__name__}: {str(e)}") from e
 
@@ -194,7 +227,6 @@ class SpannerSession:
 
         Args:
             model_class: Model class to query/instantiate
-            defaults: Default values to use if creating a new instance
             **kwargs: Field values for lookup and for new instance
 
         Returns:
@@ -217,17 +249,21 @@ class SpannerSession:
         return instance, True
 
     @contextmanager
-    def transaction(self):
+    def transaction(self, request_tag: str = None):
         """
         Context manager for transactions.
 
+        Args:
+            request_tag: Optional request tag for monitoring
+
         Example:
-            with session.transaction() as txn:
+            with session.transaction(request_tag="batch-import") as txn:
                 txn.insert(...)
                 txn.update(...)
         """
         try:
-            with self.database.batch() as batch:
+            request_options = RequestOptions(request_tag=request_tag) if request_tag else None
+            with self.database.batch(request_options=request_options) as batch:
                 yield batch
         except Exception as e:
             raise TransactionError(f"Transaction failed: {str(e)}") from e
@@ -237,8 +273,13 @@ class SpannerSession:
         """
         Context manager for read-only snapshots.
 
+        Args:
+            multi_use: Whether snapshot can be used for multiple reads
+            read_timestamp: Read at specific timestamp
+            exact_staleness: Read with exact staleness duration
+
         Example:
-            with session.snapshot() as snapshot:
+            with session.snapshot(exact_staleness=timedelta(seconds=10)) as snapshot:
                 results = snapshot.execute_sql("SELECT * FROM Products")
         """
         try:
@@ -249,18 +290,74 @@ class SpannerSession:
         except Exception as e:
             raise ConnectionError(f"Snapshot failed: {str(e)}") from e
 
-    def execute_sql(self, sql, params=None, param_types=None):
+    @contextmanager
+    def read_only_transaction(self, read_timestamp=None, exact_staleness=None):
+        """
+        Context manager for read-only transactions.
+
+        Read-only transactions provide consistent reads across multiple operations.
+
+        Args:
+            read_timestamp: Read at specific timestamp
+            exact_staleness: Read with exact staleness duration
+
+        Example:
+            with session.read_only_transaction() as ro_txn:
+                users = self.query(User).all()
+                orders = self.query(Order).filter(user_id=user.user_id).all()
+                # Both reads see consistent state
+        """
+        try:
+            # Create a multi-use snapshot which acts as a read-only transaction
+            with self.database.snapshot(
+                multi_use=True, read_timestamp=read_timestamp, exact_staleness=exact_staleness
+            ) as snapshot:
+                # Create a wrapper that provides query functionality
+                class ReadOnlyTransaction:
+                    def __init__(self, snapshot, session):
+                        self.snapshot = snapshot
+                        self.session = session
+
+                    def query(self, model_class):
+                        """Create a query within the read-only transaction."""
+                        query = Query(model_class, self.session.database)
+                        query._snapshot = self.snapshot  # Attach snapshot to query
+                        return query
+
+                    def execute_sql(self, sql, params=None, param_types=None):
+                        """Execute SQL within the read-only transaction."""
+                        return self.snapshot.execute_sql(
+                            sql, params=params, param_types=param_types
+                        )
+
+                yield ReadOnlyTransaction(snapshot, self)
+
+        except Exception as e:
+            raise ConnectionError(f"Read-only transaction failed: {str(e)}") from e
+
+    def execute_sql(self, sql, params=None, param_types=None, request_tag: str = None):
         """
         Execute a SQL statement with parameters.
 
+        Args:
+            sql: SQL query string
+            params: Query parameters
+            param_types: Parameter types
+            request_tag: Optional request tag for monitoring
+
         Example:
             results = session.execute_sql(
-                "SELECT * FROM Products WHERE Category = @category",
-                params={"category": "Electronics"}
+                "SELECT * FROM Products WHERE category = @category",
+                params={"category": "Electronics"},
+                request_tag="product-search"
             )
         """
+        request_options = RequestOptions(request_tag=request_tag) if request_tag else None
+
         with self.snapshot() as snapshot:
-            return snapshot.execute_sql(sql, params=params, param_types=param_types)
+            return snapshot.execute_sql(
+                sql, params=params, param_types=param_types, request_options=request_options
+            )
 
     def execute_update(self, sql, params=None, param_types=None):
         """
@@ -268,7 +365,7 @@ class SpannerSession:
 
         Example:
             row_count = session.execute_update(
-                "UPDATE Products SET Price = @price WHERE Category = @category",
+                "UPDATE Products SET price = @price WHERE category = @category",
                 params={"price": 19.99, "category": "Electronics"}
             )
         """

@@ -9,22 +9,6 @@ class SpanneryError(Exception):
     pass
 
 
-class ModelDefinitionError(SpanneryError):
-    """
-    Raised when there's an error in model definition.
-    """
-
-    pass
-
-
-class ValidationError(SpanneryError):
-    """
-    Raised when field validation fails.
-    """
-
-    pass
-
-
 class RecordNotFoundError(SpanneryError):
     """
     Raised when a record is not found in the database.
@@ -52,6 +36,14 @@ class TransactionError(SpanneryError):
 class ConnectionError(SpanneryError):
     """
     Raised when there's an error in database connection.
+    """
+
+    pass
+
+
+class ValidationError(SpanneryError):
+    """
+    Raised when field validation fails.
     """
 
     pass

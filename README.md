@@ -2,17 +2,18 @@
 
 [![PyPI](https://badge.fury.io/py/spannery.svg)](https://badge.fury.io/py/spannery)
 
-A Python ORM for Google Cloud Spanner, designed to provide an intuitive interface for working with Spanner databases.
+A simple ORM for Google Cloud Spanner. Spannery focuses on simplicity and Spanner-native features, without the complexity of SQLAlchemy.
 
-## Features
+## Philosophy
 
-- Model definition with field types that map to Spanner column types
-- Support for interleaved tables and composite primary keys
-- Automatic table creation and schema management
-- Fluent query builder interface
-- Session management for database operations
-- Transaction and batch support
-- Comprehensive field types (String, Integer, Boolean, DateTime, etc.)
+**"We read and write data, we don't manage schemas"**
+
+- ✅ Simple, intuitive API
+- ✅ One way to do things
+- ✅ Native Spanner features (commit timestamps, stale reads, request tags)
+- ❌ No DDL/schema management (use Spanner tools)
+- ❌ No migrations (use proper deployment tools)
+- ❌ No magic or hidden queries
 
 ## Installation
 
@@ -25,236 +26,177 @@ pip install spannery
 ### Define Models
 
 ```python
-from spannery.model import SpannerModel, SpannerSession
-from spannery.fields import (
-    StringField, IntegerField, DateTimeField, BooleanField, NumericField
-)
+from spannery import SpannerModel, StringField, TimestampField, BoolField, NumericField
 import uuid
 
-class Organization(SpannerModel):
-    __tablename__ = "Organizations"
+class User(SpannerModel):
+    __tablename__ = "Users"
 
-    OrganizationID = StringField(primary_key=True, default=lambda: str(uuid.uuid4()))
-    Name = StringField(nullable=False)
-    Active = BooleanField(default=True)
-    CreatedAt = DateTimeField(auto_now_add=True)
+    user_id = StringField(primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = StringField()
+    full_name = StringField()
+    active = BoolField(default=True)
+    created_at = TimestampField(allow_commit_timestamp=True)
+    updated_at = TimestampField(allow_commit_timestamp=True)
 
 
-class Product(SpannerModel):
-    __tablename__ = "Products"
-    __interleave_in__ = "Organizations"
+class Order(SpannerModel):
+    __tablename__ = "Orders"
 
-    OrganizationID = StringField(primary_key=True)
-    ProductID = StringField(primary_key=True, default=lambda: str(uuid.uuid4()))
-    Name = StringField(nullable=False)
-    Description = StringField(nullable=True)
-    Category = StringField(nullable=True)
-    Stock = IntegerField(default=0)
-    CreatedAt = DateTimeField(auto_now_add=True)
-    UpdatedAt = DateTimeField(auto_now=True, nullable=True)
-    Active = BooleanField(default=True)
-    ListPrice = NumericField(precision=10, scale=2, nullable=False)
-    CostPrice = NumericField(precision=10, scale=2, nullable=True)
+    order_id = StringField(primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = StringField()
+    total = NumericField()
+    status = StringField(default="pending")
+    created_at = TimestampField(allow_commit_timestamp=True)
 ```
 
-### Connect to Spanner and Create Tables
+### Basic CRUD Operations
 
 ```python
 from google.cloud import spanner
-from spannery.session import SpannerSession
+from spannery import SpannerSession
 
-# Create Spanner client
-client = spanner.Client(project="your-project-id")
-instance = client.instance("your-instance-id")
-database = instance.database("your-database-id")
+# Connect to Spanner
+client = spanner.Client()
+instance = client.instance("your-instance")
+database = instance.database("your-database")
 
 # Create a session
 session = SpannerSession(database)
 
-# Create tables if they don't exist
-Organization.create_table(database)
-Product.create_table(database)
+# CREATE
+user = User(email="john@example.com", full_name="John Doe")
+session.save(user)  # created_at set by Spanner
+
+# READ
+user = session.get(User, user_id=user.user_id)
+
+# UPDATE
+user.email = "john.doe@example.com"
+session.update(user)  # updated_at set by Spanner
+
+# DELETE
+session.delete(user)
 ```
 
-### Create and Save Models
+### Querying
 
 ```python
-# Create an organization
-org = Organization(Name="Acme Corporation")
-session.save(org)
+# Simple queries
+active_users = session.query(User).filter(active=True).all()
 
-# Create a product in that organization
-product = Product(
-    OrganizationID=org.OrganizationID,
-    Name="Super Widget",
-    Description="A fantastic widget",
-    Category="Widgets",
-    Stock=100,
-    ListPrice=99.99,
-    CostPrice=49.99
-)
-session.save(product)
-```
-
-### Query Data
-
-```python
-# Get a single record by primary key
-org = session.get(Organization, OrganizationID="org-id-here")
-
-# Query with conditions using the query builder
-active_products = session.query(Product) \
-    .filter(OrganizationID=org.OrganizationID) \
-    .filter(Active=True) \
-    .filter_gt(Stock=0) \
-    .order_by("Name") \
+# Advanced filtering
+users = session.query(User) \
+    .filter_like(email="%@gmail.com") \
+    .filter_gte(created_at="2024-01-01") \
+    .order_by("created_at", desc=True) \
+    .limit(10) \
     .all()
 
-# Advanced filtering options
-products = session.query(Product) \
-    .filter_not_in("Category", ["Discontinued", "Archive"]) \
-    .filter_like("Name", "Widget%") \
-    .filter_between("ListPrice", 10, 100) \
-    .filter_is_not_null("Description") \
+# JOINs
+user_orders = session.query(Order) \
+    .join(User, "user_id", "user_id") \
+    .filter(user_id=user.user_id) \
     .all()
-
-# OR conditions
-results = session.query(Product) \
-    .filter_or({"Category": "Electronics"}, {"ListPrice__lt": 50}) \
-    .all()
-
-# Pattern matching and regex
-email_users = session.query(User) \
-    .filter_regex("Email", r".*@(gmail|yahoo)\.com$") \
-    .filter_ilike("Name", "%john%") \
-    .all()
-
-# Count products
-product_count = session.query(Product) \
-    .filter(OrganizationID=org.OrganizationID) \
-    .count()
-
-# Select specific fields
-names_only = session.query(Product) \
-    .filter(OrganizationID=org.OrganizationID) \
-    .select("Name", "Category") \
-    .all()
-```
-
-### Update Records
-
-```python
-# Get a product, update it, and save
-product = session.get(Product, OrganizationID="org-id", ProductID="product-id")
-product.Stock = 50
-product.ListPrice = 129.99
-session.update(product)
-```
-
-### Delete Records
-
-```python
-# Get and delete a product
-product = session.get(Product, OrganizationID="org-id", ProductID="product-id")
-session.delete(product)
 ```
 
 ### Transactions
 
 ```python
-# Run multiple operations in a transaction
-with session.transaction() as batch:
-    # Insert a new product
-    batch.insert(
-        "Products",
-        columns=["OrganizationID", "ProductID", "Name", "ListPrice"],
-        values=[["org-id", "new-product-id", "New Product", 149.99]]
-    )
+# Simple transaction
+with session.transaction() as txn:
+    user = User(email="jane@example.com", full_name="Jane Smith")
+    user.save(database, transaction=txn)
 
-    # Update an existing product
-    batch.update(
-        "Products",
-        columns=["OrganizationID", "ProductID", "Stock"],
-        values=[["org-id", "existing-id", 25]]
-    )
+    order = Order(user_id=user.user_id, total=99.99)
+    order.save(database, transaction=txn)
+    # Commits on success, rolls back on exception
 ```
 
-## Querying Data with JOIN and Table Filters
-
-Spannery supports complex JOIN operations and filtering on columns from different tables:
+### Spanner-Specific Features
 
 ```python
-# Query all media files for a specific product
-media_query = session.query(Media).join(
-    ProductMedia, "MediaID", "MediaID"
-).table_filter(
-    "ProductMedia", ProductID="abc123"
-)
-media_files = media_query.all()
+# Stale reads (read data as it was 10 seconds ago)
+from datetime import timedelta
 
-# More complex queries with multiple joins and filters on different tables
-products = session.query(Product).join(
-    ProductMedia, "ProductID", "ProductID"
-).join(
-    Media, "MediaID", "MediaID"
-).filter(
-    Category="Electronics"  # Filter on the base table
-).table_filter(
-    "ProductMedia", IsPrimary=True  # Filter on first joined table
-).table_filter(
-    "Media", MimeType="image/jpeg"  # Filter on second joined table
-).all()
+with session.snapshot(exact_staleness=timedelta(seconds=10)) as snapshot:
+    old_orders = snapshot.execute_sql(
+        "SELECT * FROM Orders WHERE created_at < @cutoff",
+        params={"cutoff": "2024-01-01"}
+    )
+
+# Commit timestamps (automatic server-side timestamps)
+class Event(SpannerModel):
+    __tablename__ = "Events"
+
+    event_id = StringField(primary_key=True)
+    occurred_at = TimestampField(allow_commit_timestamp=True)
+
+event = Event(event_id="evt_123")
+session.save(event)  # occurred_at set to commit timestamp by Spanner
 ```
 
-See the full example in [examples/table_filter_example.py](examples/table_filter_example.py)
+## Field Types
 
-## Query Filter Methods
+| Spannery Field | Spanner Type | Notes |
+|----------------|--------------|-------|
+| `StringField` | `STRING` | |
+| `Int64Field` | `INT64` | |
+| `NumericField` | `NUMERIC` | Decimal type |
+| `BoolField` | `BOOL` | |
+| `TimestampField` | `TIMESTAMP` | Supports `allow_commit_timestamp` |
+| `DateField` | `DATE` | |
+| `Float64Field` | `FLOAT64` | |
+| `BytesField` | `BYTES` | |
+| `JsonField` | `JSON` | |
+| `ArrayField` | `ARRAY<T>` | Requires item field type |
 
-Beyond basic equality filters, Spannery supports advanced filtering:
+## Query Methods
 
-- `filter_not_in(field, values)`: Exclude values from a list
-- `filter_like(field, pattern)`: Pattern matching with wildcards (%)
-- `filter_ilike(field, pattern)`: Case-insensitive pattern matching
-- `filter_between(field, start, end)`: Range filtering
-- `filter_is_null(field)` / `filter_is_not_null(field)`: NULL checks
-- `filter_regex(field, pattern)`: Regular expression matching
-- `filter_or(*conditions)`: OR logic between multiple conditions
+- `filter(**kwargs)` - Equality filters
+- `filter_lt()`, `filter_lte()`, `filter_gt()`, `filter_gte()` - Comparisons
+- `filter_in()`, `filter_not_in()` - List membership
+- `filter_like()`, `filter_ilike()` - Pattern matching
+- `filter_is_null()`, `filter_is_not_null()` - NULL checks
+- `filter_between()` - Range queries
+- `order_by()` - Sorting
+- `limit()`, `offset()` - Pagination
+- `join()` - JOIN operations
 
-## Available Field Types
+## Why Spannery?
 
-- `StringField`: For Spanner STRING columns
-- `IntegerField`: For Spanner INT64 columns
-- `NumericField`: For Spanner NUMERIC columns
-- `BooleanField`: For Spanner BOOL columns
-- `DateTimeField`: For Spanner TIMESTAMP columns
-- `DateField`: For Spanner DATE columns
-- `FloatField`: For Spanner FLOAT64 columns
-- `BytesField`: For Spanner BYTES columns
-- `ArrayField`: For Spanner ARRAY columns
-
-## Advanced Usage
-
-### Custom SQL Queries
+### Simpler than SQLAlchemy
 
 ```python
-# Execute a custom SQL query
-result = session.execute_sql(
-    "SELECT p.Name, COUNT(*) as OrderCount "
-    "FROM Products p JOIN Orders o ON p.ProductID = o.ProductID "
-    "WHERE p.OrganizationID = @org_id "
-    "GROUP BY p.Name",
-    params={"org_id": "org-id-here"},
-    param_types={"org_id": spanner.param_types.STRING}
-)
+# SQLAlchemy - multiple ways to query
+users = session.query(User).filter(User.email == "john@example.com").all()
+users = session.execute(select(User).where(User.email == "john@example.com")).scalars().all()
 
-# Process results
-for row in result:
-    print(f"Product: {row[0]}, Orders: {row[1]}")
+# Spannery - one clear way
+users = session.query(User).filter(email="john@example.com").all()
 ```
 
-### Migrations
+### No Schema Management Overhead
 
-In development. For now, you can use Spanner's DDL capabilities directly for schema migrations.
+```python
+# SQLAlchemy - requires schema management
+Base.metadata.create_all(engine)
+alembic upgrade head
+
+# Spannery - just map to existing tables
+class User(SpannerModel):
+    __tablename__ = "Users"  # Table already exists
+    user_id = StringField(primary_key=True)
+```
+
+### Native Spanner Features
+
+```python
+# Spannery makes Spanner features easy
+created_at = TimestampField(allow_commit_timestamp=True)  # Auto-set by Spanner
+with session.snapshot(exact_staleness=timedelta(seconds=10)):  # Stale reads
+    # Read historical data
+```
 
 ## License
 

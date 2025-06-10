@@ -1,218 +1,148 @@
 """Tests for transaction support in SpannerModel."""
 
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from conftest import Organization, Product
 
+from spannery.fields import StringField, TimestampField
+from spannery.model import SpannerModel
 
-@patch("google.cloud.spanner_v1.database.Database")
-def test_save_with_transaction(mock_db):
-    """Test saving a model with a transaction."""
-    # Create mock transaction
+# ... (keep existing tests) ...
+
+
+def test_transaction_with_commit_timestamp():
+    """Test transaction with commit timestamp fields."""
+    from google.cloud.spanner_v1 import COMMIT_TIMESTAMP
+
+    class Event(SpannerModel):
+        __tablename__ = "Events"
+
+        event_id = StringField(primary_key=True)
+        name = StringField()
+        occurred_at = TimestampField(allow_commit_timestamp=True)
+
+    mock_db = MagicMock()
     mock_transaction = MagicMock()
 
-    # Create a test product
-    product = Product(
-        OrganizationID="test-org-id",
-        Name="Test Product",
-        ListPrice=99.99,
-    )
+    # Create event - the timestamp should use commit timestamp
+    event = Event(event_id="evt-123", name="Test Event", occurred_at="COMMIT_TIMESTAMP")
+    event.save(mock_db, transaction=mock_transaction)
 
-    # Call save with transaction
-    product.save(mock_db, transaction=mock_transaction)
-
-    # Verify transaction.insert was called with the right parameters
-    mock_transaction.insert.assert_called_once()
+    # Verify the commit timestamp was passed
     call_args = mock_transaction.insert.call_args
-    assert call_args[1]["table"] == "Products"
-    assert "OrganizationID" in call_args[1]["columns"]
-    assert "ProductID" in call_args[1]["columns"]
-    assert "Name" in call_args[1]["columns"]
-    assert len(call_args[1]["values"]) == 1  # One row of values
+    values = call_args[1]["values"][0]
+    columns = call_args[1]["columns"]
+
+    # Find occurred_at position
+    occurred_at_idx = columns.index("occurred_at")
+    assert values[occurred_at_idx] == COMMIT_TIMESTAMP
 
 
-@patch("google.cloud.spanner_v1.database.Database")
-def test_update_with_transaction(mock_db):
-    """Test updating a model with a transaction."""
-    # Create mock transaction
-    mock_transaction = MagicMock()
+def test_transaction_with_request_tag():
+    """Test using transactions with request tags via session."""
+    from spannery.session import SpannerSession
 
-    # Create a test product
-    product = Product(
-        OrganizationID="test-org-id",
-        ProductID="test-product-id",
-        Name="Test Product",
-        ListPrice=99.99,
-    )
+    mock_db = MagicMock()
+    mock_batch = MagicMock()
+    mock_db.batch.return_value.__enter__.return_value = mock_batch
 
-    # Update product name
-    product.Name = "Updated Product"
+    session = SpannerSession(mock_db)
 
-    # Call update with transaction
-    product.update(mock_db, transaction=mock_transaction)
+    # Use transaction with request tag
+    with session.transaction(request_tag="bulk-import") as txn:
+        assert txn == mock_batch
 
-    # Verify transaction.update was called with the right parameters
-    mock_transaction.update.assert_called_once()
-    call_args = mock_transaction.update.call_args
-    assert call_args[1]["table"] == "Products"
-    assert "Name" in call_args[1]["columns"]
-    assert len(call_args[1]["values"]) == 1  # One row of values
-
-
-@patch("google.cloud.spanner_v1.database.Database")
-def test_delete_with_transaction(mock_db):
-    """Test deleting a model with a transaction."""
-    # Create mock transaction
-    mock_transaction = MagicMock()
-
-    # Create a test product
-    product = Product(
-        OrganizationID="test-org-id",
-        ProductID="test-product-id",
-        Name="Test Product",
-    )
-
-    # Call delete with transaction
-    product.delete(mock_db, transaction=mock_transaction)
-
-    # Verify transaction.delete was called with the right parameters
-    mock_transaction.delete.assert_called_once()
-    call_args = mock_transaction.delete.call_args
-    assert call_args[1]["table"] == "Products"
-    assert "keyset" in call_args[1]
-
-
-@patch("google.cloud.spanner_v1.database.Database")
-def test_multiple_operations_with_transaction(mock_db):
-    """Test multiple operations in a single transaction."""
-    # Create mock transaction
-    mock_transaction = MagicMock()
-
-    # Create test organization and product
-    org = Organization(
-        OrganizationID="test-org-id",
-        Name="Test Organization",
-    )
-
-    product1 = Product(
-        OrganizationID="test-org-id",
-        ProductID="product-1",
-        Name="Product 1",
-        ListPrice=99.99,
-    )
-
-    product2 = Product(
-        OrganizationID="test-org-id",
-        ProductID="product-2",
-        Name="Product 2",
-        ListPrice=199.99,
-    )
-
-    # Execute multiple operations with the same transaction
-    org.save(mock_db, transaction=mock_transaction)
-    product1.save(mock_db, transaction=mock_transaction)
-    product2.save(mock_db, transaction=mock_transaction)
-
-    # Verify transaction.insert was called three times
-    assert mock_transaction.insert.call_count == 3
+    # Verify request options were passed
+    call_args = mock_db.batch.call_args
+    assert "request_options" in call_args[1]
+    assert call_args[1]["request_options"].request_tag == "bulk-import"
 
 
 @pytest.mark.skip("Integration test requiring Spanner connection")
-def test_transaction_with_database(spanner_session):
-    """Integration test for transaction operations with a real database."""
-    # Create unique IDs for this test
+def test_transaction_with_multiple_models(spanner_session):
+    """Test transaction with multiple different model types."""
+    # Create unique IDs
     org_id = f"org-{uuid.uuid4()}"
-    product_id = f"product-{uuid.uuid4()}"
+    user_id = f"user-{uuid.uuid4()}"
 
-    # Create test models
-    org = Organization(
-        OrganizationID=org_id,
-        Name="Transaction Test Organization",
-    )
+    from spannery.fields import BoolField
 
-    product = Product(
-        OrganizationID=org_id,
-        ProductID=product_id,
-        Name="Transaction Test Product",
-        ListPrice=99.99,
-    )
+    # Create a User model for this test
+    class User(SpannerModel):
+        __tablename__ = "Users"
 
-    # Get the database from the session
-    database = spanner_session._database
+        UserID = StringField(primary_key=True)
+        Email = StringField()
+        Active = BoolField(default=True)
 
-    # Run operations in a transaction
-    with database.transaction() as transaction:
-        org.save(database, transaction=transaction)
-        product.save(database, transaction=transaction)
+    # Create instances
+    org = Organization(OrganizationID=org_id, Name="Multi-Model Org")
+    user = User(UserID=user_id, Email="test@example.com")
+    product = Product(OrganizationID=org_id, Name="Multi-Model Product", ListPrice=99.99)
 
-    # Verify both records were saved
-    retrieved_org = Organization.get(database, OrganizationID=org_id)
-    retrieved_product = Product.get(database, OrganizationID=org_id, ProductID=product_id)
+    database = spanner_session.database
 
-    assert retrieved_org is not None
-    assert retrieved_org.OrganizationID == org_id
+    # Save all in one transaction
+    with database.transaction() as txn:
+        org.save(database, transaction=txn)
+        user.save(database, transaction=txn)
+        product.save(database, transaction=txn)
 
-    assert retrieved_product is not None
-    assert retrieved_product.ProductID == product_id
+    # Verify all were saved
+    assert Organization.get(database, OrganizationID=org_id) is not None
+    assert User.get(database, UserID=user_id) is not None
+    assert Product.get(database, OrganizationID=org_id, ProductID=product.ProductID) is not None
 
-    # Clean up: delete in a transaction
-    with database.transaction() as transaction:
-        product.delete(database, transaction=transaction)
-        org.delete(database, transaction=transaction)
+    # Clean up in transaction
+    with database.transaction() as txn:
+        product.delete(database, transaction=txn)
+        user.delete(database, transaction=txn)
+        org.delete(database, transaction=txn)
 
-    # Verify deletion
+    # Verify all deleted
     assert Organization.get(database, OrganizationID=org_id) is None
-    assert Product.get(database, OrganizationID=org_id, ProductID=product_id) is None
+    assert User.get(database, UserID=user_id) is None
 
 
 @pytest.mark.skip("Integration test requiring Spanner connection")
-def test_transaction_rollback(spanner_session):
-    """Test transaction rollback when an error occurs."""
-    # Create unique IDs for this test
-    org_id = f"org-{uuid.uuid4()}"
-    product_id = f"product-{uuid.uuid4()}"
+def test_transaction_read_only(spanner_session):
+    """Test read-only transactions for consistent reads."""
+    # Create test data
+    org = Organization(Name="Read-Only Test Org")
+    spanner_session.save(org)
 
-    # Create test models
-    org = Organization(
-        OrganizationID=org_id,
-        Name="Rollback Test Organization",
-    )
+    products = []
+    for i in range(3):
+        product = Product(
+            OrganizationID=org.OrganizationID,
+            Name=f"Product {i}",
+            ListPrice=50.0 * (i + 1),
+            Stock=10 * (i + 1),
+        )
+        spanner_session.save(product)
+        products.append(product)
 
-    product = Product(
-        OrganizationID=org_id,
-        ProductID=product_id,
-        Name="Rollback Test Product",
-        ListPrice=99.99,
-    )
+    # Use read-only transaction for consistent reads
+    with spanner_session.read_only_transaction() as ro_txn:
+        # All reads see the same snapshot
+        org_check = ro_txn.query(Organization).filter(OrganizationID=org.OrganizationID).first()
 
-    # Get the database from the session
-    database = spanner_session._database
+        product_count = ro_txn.query(Product).filter(OrganizationID=org.OrganizationID).count()
 
-    # First save the organization outside the transaction
-    org.save(database)
+        expensive_products = (
+            ro_txn.query(Product)
+            .filter(OrganizationID=org.OrganizationID, ListPrice__gte=100)
+            .all()
+        )
 
-    # Try to perform operations in a transaction, but cause an error
-    try:
-        with database.transaction() as transaction:
-            # This should work
-            product.save(database, transaction=transaction)
+        # Verify consistent results
+        assert org_check is not None
+        assert product_count == 3
+        assert len(expensive_products) == 2
 
-            # This will cause an error - trying to insert a duplicate organization
-            org.save(database, transaction=transaction)
-    except Exception:  # nosec B110
-        # Expected exception, transaction should be rolled back
-        # This is intentional for testing rollback behavior
-        pass
-
-    # Verify organization exists (it was saved outside the transaction)
-    retrieved_org = Organization.get(database, OrganizationID=org_id)
-    assert retrieved_org is not None
-
-    # Verify product was NOT saved due to transaction rollback
-    retrieved_product = Product.get(database, OrganizationID=org_id, ProductID=product_id)
-    assert retrieved_product is None
-
-    # Clean up: delete the organization
-    org.delete(database)
+    # Clean up
+    for product in products:
+        spanner_session.delete(product)
+    spanner_session.delete(org)

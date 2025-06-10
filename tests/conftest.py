@@ -11,43 +11,42 @@ from google.cloud.spanner_v1.database import Database
 from google.cloud.spanner_v1.instance import Instance
 
 from spannery.fields import (
-    BooleanField,
-    DateTimeField,
+    BoolField,
     ForeignKeyField,
-    IntegerField,
+    Int64Field,
     NumericField,
     StringField,
+    TimestampField,
 )
 from spannery.model import SpannerModel
 from spannery.session import SpannerSession
 
 
-# Test model definitions
+# Test model definitions with new field names
 class Organization(SpannerModel):
     __tablename__ = "Organizations"
 
     OrganizationID = StringField(
         primary_key=True, nullable=False, default=lambda: str(uuid.uuid4())
     )
-    Name = StringField(max_length=255, nullable=False)
-    Active = BooleanField(nullable=False, default=True)
-    CreatedAt = DateTimeField(nullable=False, default=lambda: datetime.now(timezone.utc))
+    Name = StringField(nullable=False)
+    Active = BoolField(nullable=False, default=True)
+    CreatedAt = TimestampField(nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class Product(SpannerModel):
     __tablename__ = "Products"
-    __interleave_in__ = "Organizations"
-    __on_delete__ = "CASCADE"
+    __interleave_in__ = "Organizations"  # Metadata only
 
     OrganizationID = StringField(primary_key=True, nullable=False)
     ProductID = StringField(primary_key=True, nullable=False, default=lambda: str(uuid.uuid4()))
-    Name = StringField(max_length=255, nullable=False)
-    Description = StringField(max_length=2000)
-    Category = StringField(max_length=100)
-    Stock = IntegerField(nullable=False, default=0)
-    CreatedAt = DateTimeField(nullable=False, default=lambda: datetime.now(timezone.utc))
-    UpdatedAt = DateTimeField(nullable=False, default=lambda: datetime.now(timezone.utc))
-    Active = BooleanField(nullable=False, default=True)
+    Name = StringField(nullable=False)
+    Description = StringField()
+    Category = StringField()
+    Stock = Int64Field(nullable=False, default=0)
+    CreatedAt = TimestampField(nullable=False, default=lambda: datetime.now(timezone.utc))
+    UpdatedAt = TimestampField(nullable=False, default=lambda: datetime.now(timezone.utc))
+    Active = BoolField(nullable=False, default=True)
     ListPrice = NumericField(nullable=False)
     CostPrice = NumericField()
 
@@ -57,11 +56,11 @@ class User(SpannerModel):
     __tablename__ = "Users"
 
     UserID = StringField(primary_key=True, nullable=False, default=lambda: str(uuid.uuid4()))
-    Email = StringField(max_length=255, nullable=False)
-    FullName = StringField(max_length=255, nullable=False)
-    Status = StringField(max_length=20, nullable=False, default="ACTIVE")
-    CreatedAt = DateTimeField(nullable=False, default=lambda: datetime.now(timezone.utc))
-    Active = BooleanField(nullable=False, default=True)
+    Email = StringField(nullable=False)
+    FullName = StringField(nullable=False)
+    Status = StringField(nullable=False, default="ACTIVE")
+    CreatedAt = TimestampField(nullable=False, default=lambda: datetime.now(timezone.utc))
+    Active = BoolField(nullable=False, default=True)
 
 
 class OrganizationUser(SpannerModel):
@@ -69,9 +68,9 @@ class OrganizationUser(SpannerModel):
 
     OrganizationID = ForeignKeyField("Organization", primary_key=True, related_name="users")
     UserID = ForeignKeyField("User", primary_key=True, related_name="organizations")
-    Role = StringField(max_length=20, nullable=False)
-    Status = StringField(max_length=20, nullable=False, default="ACTIVE")
-    CreatedAt = DateTimeField(nullable=False, default=lambda: datetime.now(timezone.utc))
+    Role = StringField(nullable=False)
+    Status = StringField(nullable=False, default="ACTIVE")
+    CreatedAt = TimestampField(nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 # Check if running in CI or local development
@@ -120,8 +119,12 @@ def spanner_instance(spanner_client: Client, spanner_instance_id: str) -> Instan
 def spanner_database(
     spanner_instance: Instance, spanner_database_id: str
 ) -> Generator[Database, None, None]:
-    """Create a test database and clean it up after tests."""
-    # Skip actual database creation if using mocks
+    """
+    Get test database - assumes tables already exist.
+
+    In the new approach, we don't create tables programmatically.
+    Tables should be created using Spanner DDL tools/console.
+    """
     if USE_MOCK:
         from unittest.mock import MagicMock
 
@@ -129,74 +132,14 @@ def spanner_database(
         yield mock_db
         return
 
-    # Create database for real tests
     database = spanner_instance.database(spanner_database_id)
 
-    if not database.exists():
-        # Create database with a single DDL statement
-        database.create()
-
-        # Create test tables
-        database.update_ddl(
-            [
-                """
-            CREATE TABLE Organizations (
-                OrganizationID STRING(36) NOT NULL,
-                Name STRING(255) NOT NULL,
-                Active BOOL NOT NULL,
-                CreatedAt TIMESTAMP NOT NULL,
-            ) PRIMARY KEY (OrganizationID)
-            """,
-                """
-            CREATE TABLE Products (
-                OrganizationID STRING(36) NOT NULL,
-                ProductID STRING(36) NOT NULL,
-                Name STRING(255) NOT NULL,
-                Description STRING(2000),
-                Category STRING(100),
-                Stock INT64 NOT NULL,
-                CreatedAt TIMESTAMP NOT NULL,
-                UpdatedAt TIMESTAMP,
-                Active BOOL NOT NULL,
-                ListPrice NUMERIC NOT NULL,
-                CostPrice NUMERIC,
-                FOREIGN KEY (OrganizationID) REFERENCES Organizations(OrganizationID),
-            ) PRIMARY KEY (OrganizationID, ProductID),
-            INTERLEAVE IN PARENT Organizations ON DELETE CASCADE
-            """,
-                """
-            CREATE TABLE Users (
-                UserID STRING(36) NOT NULL,
-                Email STRING(255) NOT NULL,
-                FullName STRING(255) NOT NULL,
-                Status STRING(20) NOT NULL,
-                CreatedAt TIMESTAMP NOT NULL,
-                Active BOOL NOT NULL,
-            ) PRIMARY KEY (UserID)
-            """,
-                """
-            CREATE TABLE OrganizationUsers (
-                OrganizationID STRING(36) NOT NULL,
-                UserID STRING(36) NOT NULL,
-                Role STRING(20) NOT NULL,
-                Status STRING(20) NOT NULL,
-                CreatedAt TIMESTAMP NOT NULL,
-                FOREIGN KEY (OrganizationID) REFERENCES Organizations(OrganizationID),
-                FOREIGN KEY (UserID) REFERENCES Users(UserID),
-            ) PRIMARY KEY (OrganizationID, UserID)
-            """,
-            ]
-        ).result()
+    # For tests, we assume the database and tables exist
+    # In real usage, tables would be created via migrations or terraform
 
     yield database
 
-    # Clean up after tests
-    if not USE_EMULATOR:
-        # Don't actually delete real databases
-        pass
-    else:
-        # Safe to delete emulator databases
-        database.drop()
+    # No cleanup of tables - they're persistent
 
 
 @pytest.fixture

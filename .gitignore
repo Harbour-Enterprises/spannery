@@ -17,3 +17,4 @@ dev/
 .ruff_cache/
 coverage.xml
 .benchmarks/
+htmlcov/

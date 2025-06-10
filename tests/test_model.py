@@ -1,13 +1,14 @@
 """Tests for SpannerModel."""
 
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from conftest import Organization, Product
 
-from spannery.exceptions import ModelDefinitionError, RecordNotFoundError
-from spannery.fields import IntegerField, StringField
+from spannery.exceptions import RecordNotFoundError
+from spannery.fields import Int64Field, StringField, TimestampField
 from spannery.model import SpannerModel
 
 
@@ -89,67 +90,17 @@ def test_model_fields():
     assert set(primary_keys) == {"OrganizationID", "ProductID"}
 
 
-def test_get_primary_keys():
-    """Test the _get_primary_keys method."""
-    assert set(Product._get_primary_keys()) == {"OrganizationID", "ProductID"}
-    assert set(Organization._get_primary_keys()) == {"OrganizationID"}
-
-
-@pytest.mark.parametrize(
-    "model_class, expected_error",
-    [
-        (
-            type("EmptyModel", (SpannerModel,), {"__tablename__": "EmptyTable"}),
-            "Model EmptyModel has no fields",
-        ),
-        (
-            type(
-                "NoPKModel",
-                (SpannerModel,),
-                {
-                    "__tablename__": "NoPKTable",
-                    "Name": StringField(nullable=False),
-                },
-            ),
-            "Model NoPKModel has no primary key fields",
-        ),
-    ],
-)
-def test_create_table_validation(model_class, expected_error):
-    """Test validation in create_table method."""
-    mock_db = MagicMock()
-
-    with pytest.raises(ModelDefinitionError, match=expected_error):
-        model_class.create_table(mock_db)
-
-
-@patch("spannery.model.SpannerModel.get")
-def test_get_or_404_not_found(mock_get):
-    """Test get_or_404 raises RecordNotFoundError when no record is found."""
-    mock_get.return_value = None
-    mock_db = MagicMock()
-
-    with pytest.raises(RecordNotFoundError):
-        Organization.get_or_404(mock_db, OrganizationID="does-not-exist")
-
-    mock_get.assert_called_once_with(mock_db, OrganizationID="does-not-exist")
-
-
-def test_model_init():
-    """Test model initialization with keyword arguments."""
-    org = Organization(
-        OrganizationID="test-org",
-        Name="Test Organization",
-        Active=True,
+def test_get_primary_key_values():
+    """Test the _get_primary_key_values method."""
+    product = Product(
+        OrganizationID="org-123", ProductID="prod-456", Name="Test Product", ListPrice=99.99
     )
 
-    assert org.OrganizationID == "test-org"
-    assert org.Name == "Test Organization"
-    assert org.Active is True
-    assert org.CreatedAt is not None
+    pk_values = product._get_primary_key_values()
+    assert pk_values == {"OrganizationID": "org-123", "ProductID": "prod-456"}
 
 
-def test_model_eq():
+def test_model_equality():
     """Test model equality comparison."""
     org1 = Organization(OrganizationID="test-org", Name="Test Organization")
     org2 = Organization(OrganizationID="test-org", Name="Test Organization")
@@ -190,107 +141,303 @@ def test_model_from_dict():
 
 
 def test_model_metadata():
-    """Test model metadata and table properties."""
+    """Test model metadata."""
     assert Organization._table_name == "Organizations"
     assert "OrganizationID" in Organization._fields
     assert isinstance(Organization._fields["OrganizationID"], StringField)
     assert Organization._fields["OrganizationID"].primary_key is True
 
     assert Product._table_name == "Products"
-    assert Product._parent_table == "Organizations"
-    assert Product._parent_on_delete == "CASCADE"
-    assert isinstance(Product._fields["Stock"], IntegerField)
+    assert Product.__interleave_in__ == "Organizations"
+    assert isinstance(Product._fields["Stock"], Int64Field)
+
+
+def test_commit_timestamp_fields():
+    """Test models with commit timestamp fields."""
+    from spannery.fields import StringField
+
+    class Event(SpannerModel):
+        __tablename__ = "Events"
+
+        event_id = StringField(primary_key=True)
+        name = StringField()
+        created_at = TimestampField(allow_commit_timestamp=True)
+        updated_at = TimestampField(allow_commit_timestamp=True)
+
+    # Create event
+    event = Event(event_id="evt-123", name="Test Event")
+
+    # Get field values - should handle commit timestamps
+    values = event._get_field_values()
+
+    # When allow_commit_timestamp is True and value is None or "COMMIT_TIMESTAMP"
+    # it should be handled by the field's to_db_value method
+    assert len(values) == 4  # All fields present
 
 
 @patch("google.cloud.spanner_v1.database.Database")
-def test_model_get(mock_db):
-    """Test model get method with mocks."""
-    # Setup mock snapshot and execution results
+def test_model_save():
+    """Test model save method."""
+    mock_db = MagicMock()
+    mock_batch = MagicMock()
+    mock_db.batch.return_value.__enter__.return_value = mock_batch
+
+    product = Product(OrganizationID="test-org", Name="Test Product", ListPrice=99.99)
+
+    # Save the product
+    result = product.save(mock_db)
+
+    # Verify batch operations
+    mock_db.batch.assert_called_once()
+    mock_batch.insert.assert_called_once()
+
+    # Check insert parameters
+    call_args = mock_batch.insert.call_args
+    assert call_args[1]["table"] == "Products"
+    assert "OrganizationID" in call_args[1]["columns"]
+    assert len(call_args[1]["values"]) == 1
+
+    assert result == product
+
+
+@patch("google.cloud.spanner_v1.database.Database")
+def test_model_update():
+    """Test model update method."""
+    mock_db = MagicMock()
+    mock_batch = MagicMock()
+    mock_db.batch.return_value.__enter__.return_value = mock_batch
+
+    product = Product(
+        OrganizationID="test-org",
+        ProductID="test-product",
+        Name="Original Name",
+        Stock=10,
+        ListPrice=99.99,
+    )
+
+    # Update the product
+    product.Name = "Updated Name"
+    result = product.update(mock_db)
+
+    # Verify batch operations
+    mock_batch.update.assert_called_once()
+
+    # Check update parameters
+    call_args = mock_batch.update.call_args
+    assert call_args[1]["table"] == "Products"
+    assert all(col in call_args[1]["columns"] for col in Product._fields.keys())
+
+    assert result == product
+
+
+@patch("google.cloud.spanner_v1.database.Database")
+def test_model_delete():
+    """Test model delete method."""
+    mock_db = MagicMock()
+    mock_batch = MagicMock()
+    mock_db.batch.return_value.__enter__.return_value = mock_batch
+
+    product = Product(
+        OrganizationID="test-org", ProductID="test-product", Name="Test Product", ListPrice=99.99
+    )
+
+    # Delete the product
+    result = product.delete(mock_db)
+
+    # Verify batch operations
+    mock_batch.delete.assert_called_once()
+
+    # Check delete parameters
+    call_args = mock_batch.delete.call_args
+    assert call_args[1]["table"] == "Products"
+    assert "keyset" in call_args[1]
+
+    assert result is True
+
+
+@patch("google.cloud.spanner_v1.database.Database")
+def test_model_get():
+    """Test model get method."""
+    mock_db = MagicMock()
     mock_snapshot = MagicMock()
     mock_db.snapshot.return_value.__enter__.return_value = mock_snapshot
 
-    # Mock execute_sql with a sample result that would be returned by Spanner
+    # Mock query results
     mock_result = MagicMock()
+    mock_field1 = MagicMock()
+    mock_field1.name = "OrganizationID"
+    mock_field2 = MagicMock()
+    mock_field2.name = "Name"
+    mock_field3 = MagicMock()
+    mock_field3.name = "Active"
+    mock_field4 = MagicMock()
+    mock_field4.name = "CreatedAt"
+
+    mock_result.fields = [mock_field1, mock_field2, mock_field3, mock_field4]
     mock_result.__iter__.return_value = [
-        ("test-org", "Test Organization", True, "2023-01-01T00:00:00Z")
+        ("test-org", "Test Organization", True, datetime.now(timezone.utc))
     ]
     mock_snapshot.execute_sql.return_value = mock_result
 
-    # Directly mock the get method instead of the from_query_result
-    with patch.object(Organization, "get") as mock_get:
-        # Create a model instance to return
-        org = Organization(
-            OrganizationID="test-org",
-            Name="Test Organization",
-            Active=True,
-        )
-        mock_get.return_value = org
+    # Get organization
+    result = Organization.get(mock_db, OrganizationID="test-org")
 
-        # Test get with primary key
-        result = Organization.get(mock_db, OrganizationID="test-org")
+    # Verify SQL execution
+    mock_snapshot.execute_sql.assert_called_once()
+    sql = mock_snapshot.execute_sql.call_args[0][0]
+    assert "SELECT * FROM Organizations" in sql
+    assert "WHERE OrganizationID = @OrganizationID" in sql
 
-        # Assertions
-        mock_get.assert_called_once_with(mock_db, OrganizationID="test-org")
-        assert result is not None
-        assert result.OrganizationID == "test-org"
-        assert result.Name == "Test Organization"
-        assert result.Active is True
+    # Verify result
+    assert result is not None
+    assert result.OrganizationID == "test-org"
+    assert result.Name == "Test Organization"
 
 
-@pytest.mark.skip("Integration test requiring Spanner connection")
-def test_get_model(spanner_session, test_organization):
-    """Integration test for model retrieval."""
-    org_id = test_organization.OrganizationID
+def test_get_or_404():
+    """Test get_or_404 raises when no record found."""
+    mock_db = MagicMock()
 
-    retrieved_org = spanner_session.get(Organization, OrganizationID=org_id)
+    with patch.object(Organization, "get", return_value=None):
+        with pytest.raises(RecordNotFoundError) as exc_info:
+            Organization.get_or_404(mock_db, OrganizationID="does-not-exist")
 
-    assert retrieved_org is not None
-    assert retrieved_org.OrganizationID == org_id
-    assert retrieved_org.Name == test_organization.Name
+        assert "Organization with OrganizationID=does-not-exist not found" in str(exc_info.value)
 
 
-@pytest.mark.skip("Integration test requiring Spanner connection")
-def test_crud_operations(spanner_session, test_organization):
-    """Integration test for CRUD operations."""
-    # Create
-    product = Product(
-        OrganizationID=test_organization.OrganizationID,
-        Name="CRUD Test Product",
-        Description="This is a test product for CRUD operations",
-        Category="Test",
-        Stock=10,
-        ListPrice=99.99,
-        CostPrice=49.99,
-        Active=True,
-    )
-    spanner_session.save(product)
-    product_id = product.ProductID
+@patch("google.cloud.spanner_v1.database.Database")
+def test_model_all():
+    """Test model all method."""
+    mock_db = MagicMock()
+    mock_snapshot = MagicMock()
+    mock_db.snapshot.return_value.__enter__.return_value = mock_snapshot
 
-    # Read
-    retrieved_product = spanner_session.get(
-        Product, OrganizationID=test_organization.OrganizationID, ProductID=product_id
-    )
-    assert retrieved_product is not None
-    assert retrieved_product.Name == "CRUD Test Product"
+    # Mock query results
+    mock_result = MagicMock()
+    mock_field1 = MagicMock()
+    mock_field1.name = "OrganizationID"
+    mock_field2 = MagicMock()
+    mock_field2.name = "Name"
+    mock_field3 = MagicMock()
+    mock_field3.name = "Active"
+    mock_field4 = MagicMock()
+    mock_field4.name = "CreatedAt"
 
-    # Update
-    retrieved_product.Stock = 20
-    retrieved_product.Name = "Updated CRUD Test Product"
-    spanner_session.save(retrieved_product)
+    mock_result.fields = [mock_field1, mock_field2, mock_field3, mock_field4]
+    mock_result.__iter__.return_value = [
+        ("org1", "Organization 1", True, datetime.now(timezone.utc)),
+        ("org2", "Organization 2", False, datetime.now(timezone.utc)),
+    ]
+    mock_snapshot.execute_sql.return_value = mock_result
 
-    # Read updated
-    updated_product = spanner_session.get(
-        Product, OrganizationID=test_organization.OrganizationID, ProductID=product_id
-    )
-    assert updated_product is not None
-    assert updated_product.Stock == 20
-    assert updated_product.Name == "Updated CRUD Test Product"
+    # Get all organizations
+    results = Organization.all(mock_db)
 
-    # Delete
-    spanner_session.delete(updated_product)
+    # Verify SQL execution
+    mock_snapshot.execute_sql.assert_called_once()
+    sql = mock_snapshot.execute_sql.call_args[0][0]
+    assert sql == "SELECT * FROM Organizations"
 
-    # Verify deleted
-    deleted_product = spanner_session.get(
-        Product, OrganizationID=test_organization.OrganizationID, ProductID=product_id
-    )
-    assert deleted_product is None
+    # Verify results
+    assert len(results) == 2
+    assert results[0].OrganizationID == "org1"
+    assert results[1].OrganizationID == "org2"
+
+
+def test_from_query_result():
+    """Test creating model from query result."""
+    row = ("test-org", "Test Organization", True, datetime.now(timezone.utc))
+    field_names = ["OrganizationID", "Name", "Active", "CreatedAt"]
+
+    org = Organization.from_query_result(row, field_names)
+
+    assert org.OrganizationID == "test-org"
+    assert org.Name == "Test Organization"
+    assert org.Active is True
+    assert isinstance(org.CreatedAt, datetime)
+
+
+def test_get_related():
+    """Test get_related method for foreign keys."""
+    from spannery.fields import ForeignKeyField, StringField
+
+    class Order(SpannerModel):
+        __tablename__ = "Orders"
+
+        order_id = StringField(primary_key=True)
+        user_id = ForeignKeyField("User", related_name="orders")
+        total = StringField()
+
+    mock_db = MagicMock()
+
+    # Create order with user_id
+    order = Order(order_id="ord-123", user_id="usr-456", total="99.99")
+
+    # Mock the related User model
+    with patch("spannery.utils.get_model_class") as mock_get_model_class:
+        mock_user_class = MagicMock()
+        mock_user_class._fields = {"user_id": MagicMock(primary_key=True)}
+        mock_user = MagicMock()
+        mock_user_class.get.return_value = mock_user
+
+        mock_get_model_class.return_value = mock_user_class
+
+        # Get related user
+        result = order.get_related("user_id", mock_db)
+
+        # Verify
+        assert result == mock_user
+        mock_user_class.get.assert_called_once_with(mock_db, user_id="usr-456")
+
+
+def test_commit_timestamp_in_save():
+    """Test that commit timestamp fields are handled in save."""
+
+    from spannery.fields import StringField
+
+    class Event(SpannerModel):
+        __tablename__ = "Events"
+
+        event_id = StringField(primary_key=True)
+        created_at = TimestampField(allow_commit_timestamp=True)
+
+    mock_db = MagicMock()
+    mock_batch = MagicMock()
+    mock_db.batch.return_value.__enter__.return_value = mock_batch
+
+    event = Event(event_id="evt-123")
+    event.save(mock_db)
+
+    # Check that commit timestamp fields are handled
+    call_args = mock_batch.insert.call_args
+    assert call_args[1]["values"][0] == "COMMIT_TIMESTAMP"
+
+    # The field should handle the commit timestamp conversion
+    # We can't check the exact value here as it depends on the field implementation
+
+
+def test_commit_timestamp_in_update():
+    """Test that UpdatedAt fields get commit timestamp on update."""
+    from spannery.fields import StringField
+
+    class Document(SpannerModel):
+        __tablename__ = "Documents"
+
+        doc_id = StringField(primary_key=True)
+        title = StringField()
+        created_at = TimestampField(allow_commit_timestamp=True)
+        updated_at = TimestampField(allow_commit_timestamp=True)
+
+    mock_db = MagicMock()
+    mock_batch = MagicMock()
+    mock_db.batch.return_value.__enter__.return_value = mock_batch
+
+    doc = Document(doc_id="doc-123", title="Original")
+    doc.title = "Updated"
+    doc.update(mock_db)
+
+    # The update method should handle updated_at fields specially
+    call_args = mock_batch.update.call_args
+    assert call_args[1]["values"][0] == "COMMIT_TIMESTAMP"
+    # We can verify the method was called but the exact timestamp handling
+    # is done in the field's to_db_value method
