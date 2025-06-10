@@ -110,6 +110,25 @@ active_products = session.query(Product) \
     .order_by("Name") \
     .all()
 
+# Advanced filtering options
+products = session.query(Product) \
+    .filter_not_in("Category", ["Discontinued", "Archive"]) \
+    .filter_like("Name", "Widget%") \
+    .filter_between("ListPrice", 10, 100) \
+    .filter_is_not_null("Description") \
+    .all()
+
+# OR conditions
+results = session.query(Product) \
+    .filter_or({"Category": "Electronics"}, {"ListPrice__lt": 50}) \
+    .all()
+
+# Pattern matching and regex
+email_users = session.query(User) \
+    .filter_regex("Email", r".*@(gmail|yahoo)\.com$") \
+    .filter_ilike("Name", "%john%") \
+    .all()
+
 # Count products
 product_count = session.query(Product) \
     .filter(OrganizationID=org.OrganizationID) \
@@ -188,6 +207,18 @@ products = session.query(Product).join(
 ```
 
 See the full example in [examples/table_filter_example.py](examples/table_filter_example.py)
+
+## Query Filter Methods
+
+Beyond basic equality filters, Spannery supports advanced filtering:
+
+- `filter_not_in(field, values)`: Exclude values from a list
+- `filter_like(field, pattern)`: Pattern matching with wildcards (%)
+- `filter_ilike(field, pattern)`: Case-insensitive pattern matching  
+- `filter_between(field, start, end)`: Range filtering
+- `filter_is_null(field)` / `filter_is_not_null(field)`: NULL checks
+- `filter_regex(field, pattern)`: Regular expression matching
+- `filter_or(*conditions)`: OR logic between multiple conditions
 
 ## Available Field Types
 

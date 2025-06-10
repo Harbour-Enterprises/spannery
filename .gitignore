@@ -13,3 +13,4 @@ dev/
 .coverage
 .tox/
 .cursor/rules/
+dev/

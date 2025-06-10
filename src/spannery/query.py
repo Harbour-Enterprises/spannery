@@ -145,6 +145,190 @@ class Query(Generic[T]):
             if key in self.model_class._fields:
                 self.filters.append((key, "!=", value))
         return self
+    
+    def filter_not_in(self, field: str, values: List[Any]) -> "Query[T]":
+        """
+        Add NOT IN filter condition.
+
+        Args:
+            field: Field name to filter on
+            values: List of values to exclude
+
+        Returns:
+            Query: Self for method chaining
+            
+        Example:
+            # Get all products except those with specific IDs
+            products = query.filter_not_in("ProductID", ["id1", "id2", "id3"])
+        """
+        if field in self.model_class._fields and values:
+            self.filters.append((field, "NOT IN", values))
+        return self
+
+    def filter_like(self, field: str, pattern: str, case_sensitive: bool = True) -> "Query[T]":
+        """
+        Add LIKE filter condition for pattern matching.
+
+        Args:
+            field: Field name to filter on
+            pattern: Pattern to match (use % for wildcard)
+            case_sensitive: Whether the match should be case-sensitive
+
+        Returns:
+            Query: Self for method chaining
+            
+        Example:
+            # Get all products with names starting with "Widget"
+            products = query.filter_like("Name", "Widget%")
+            
+            # Get all emails from gmail
+            users = query.filter_like("Email", "%@gmail.com")
+        """
+        if field in self.model_class._fields:
+            if case_sensitive:
+                self.filters.append((field, "LIKE", pattern))
+            else:
+                # For case-insensitive, we'll handle it in _build_query
+                self.filters.append((field, "ILIKE", pattern))
+        return self
+
+    def filter_ilike(self, field: str, pattern: str) -> "Query[T]":
+        """
+        Add case-insensitive LIKE filter condition.
+
+        Args:
+            field: Field name to filter on
+            pattern: Pattern to match (use % for wildcard)
+
+        Returns:
+            Query: Self for method chaining
+            
+        Example:
+            # Get all products with names containing "widget" (case-insensitive)
+            products = query.filter_ilike("Name", "%widget%")
+        """
+        return self.filter_like(field, pattern, case_sensitive=False)
+
+    def filter_is_null(self, field: str) -> "Query[T]":
+        """
+        Filter for NULL values.
+
+        Args:
+            field: Field name to check for NULL
+
+        Returns:
+            Query: Self for method chaining
+            
+        Example:
+            # Get all products without a description
+            products = query.filter_is_null("Description")
+        """
+        if field in self.model_class._fields:
+            self.filters.append((field, "IS", None))
+        return self
+
+    def filter_is_not_null(self, field: str) -> "Query[T]":
+        """
+        Filter for non-NULL values.
+
+        Args:
+            field: Field name to check for non-NULL
+
+        Returns:
+            Query: Self for method chaining
+            
+        Example:
+            # Get all products with a description
+            products = query.filter_is_not_null("Description")
+        """
+        if field in self.model_class._fields:
+            self.filters.append((field, "IS NOT", None))
+        return self
+
+    def filter_or(self, *conditions: Dict[str, Any]) -> "Query[T]":
+        """
+        Add OR filter conditions.
+
+        Args:
+            *conditions: Multiple dictionaries of field=value pairs
+
+        Returns:
+            Query: Self for method chaining
+            
+        Example:
+            # Get products that are either cheap OR on sale
+            products = query.filter_or(
+                {"ListPrice__lt": 20},
+                {"OnSale": True}
+            )
+            
+            # Get users named John OR Jane
+            users = query.filter_or(
+                {"Name": "John"},
+                {"Name": "Jane"}
+            )
+        """
+        if not conditions:
+            return self
+            
+        or_conditions = []
+        for condition_dict in conditions:
+            for field_op, value in condition_dict.items():
+                if "__" in field_op:
+                    field, op = field_op.split("__", 1)
+                    or_conditions.append((field, op.upper(), value))
+                else:
+                    or_conditions.append((field_op, "=", value))
+        
+        if or_conditions:
+            self.filters.append(("__OR__", "OR", or_conditions))
+        return self
+
+    def filter_regex(self, field: str, pattern: str) -> "Query[T]":
+        """
+        Filter using regular expression matching.
+        
+        Note: This uses Spanner's REGEXP_CONTAINS function.
+
+        Args:
+            field: Field name to match against
+            pattern: Regular expression pattern
+
+        Returns:
+            Query: Self for method chaining
+            
+        Example:
+            # Get all emails from specific domains
+            users = query.filter_regex("Email", r".*@(gmail|yahoo)\.com$")
+        """
+        if field in self.model_class._fields:
+            self.filters.append((field, "REGEX", pattern))
+        return self
+
+    def filter_between(self, field: str, start: Any, end: Any, inclusive: bool = True) -> "Query[T]":
+        """
+        Filter values between a range.
+
+        Args:
+            field: Field name to filter on
+            start: Start of range
+            end: End of range
+            inclusive: Whether to include boundaries (default: True)
+
+        Returns:
+            Query: Self for method chaining
+            
+        Example:
+            # Get products priced between $10 and $100
+            products = query.filter_between("ListPrice", 10, 100)
+        """
+        if field in self.model_class._fields:
+            if inclusive:
+                self.filters.append((field, "BETWEEN", (start, end)))
+            else:
+                self.filters.append((field, ">", start))
+                self.filters.append((field, "<", end))
+        return self
 
     def order_by(self, field_name: str, desc: bool = False) -> "Query[T]":
         """
@@ -255,7 +439,11 @@ class Query(Generic[T]):
             Tuple[str, Dict, Dict]: SQL string, parameters, and parameter types
         """
         # Start with SELECT and FROM clauses
-        select_clause = "SELECT * "
+        if self.select_fields:
+            select_clause = f"SELECT {', '.join(self.select_fields)} "
+        else:
+            select_clause = "SELECT * "
+        
         from_clause = f"FROM {self.model_class._table_name} AS t0"
 
         # Add JOIN clauses if any
@@ -267,40 +455,124 @@ class Query(Generic[T]):
         where_parts = []
         params = {}
         param_types = {}
+        param_counter = 0
 
-        for i, (field, op, value) in enumerate(self.filters):
+        for filter_item in self.filters:
+            field, op, value = filter_item
+            
+            # Handle OR conditions specially
+            if field == "__OR__":
+                or_parts = []
+                for or_field, or_op, or_value in value:
+                    param_name = f"param_{param_counter}"
+                    param_counter += 1
+                    
+                    if or_op == "=":
+                        or_parts.append(f"t0.{or_field} = @{param_name}")
+                    elif or_op in ["LT", "<"]:
+                        or_parts.append(f"t0.{or_field} < @{param_name}")
+                    elif or_op in ["GT", ">"]:
+                        or_parts.append(f"t0.{or_field} > @{param_name}")
+                    # Add other operators as needed
+                    
+                    params[param_name] = or_value
+                    
+                if or_parts:
+                    where_parts.append(f"({' OR '.join(or_parts)})")
+                continue
+            
             # Check if the field is table-qualified
             if "." in field:
                 # Extract table name and field name
                 table_name, field_name = field.split(".")
-
+                
                 # Convert table name to alias if it exists in table_aliases
                 if table_name in self.table_aliases:
                     alias = self.table_aliases[table_name]
-                    field_name = f"{alias}.{field_name}"
+                    qualified_field = f"{alias}.{field_name}"
                 else:
-                    # If no alias found, use the table name as is
-                    field_name = field
+                    qualified_field = field
             else:
                 # Qualify fields from base table with t0 alias
-                field_name = f"t0.{field}"
+                qualified_field = f"t0.{field}"
 
-            param_name = f"param_{i}"
-            where_parts.append(f"{field_name} {op} @{param_name}")
+            param_name = f"param_{param_counter}"
+            param_counter += 1
 
-            # Set parameter value
-            params[param_name] = value
-            # Would set param_types here based on field type
+            # Handle different operators
+            if op == "=":
+                where_parts.append(f"{qualified_field} = @{param_name}")
+                params[param_name] = value
+            elif op == "<":
+                where_parts.append(f"{qualified_field} < @{param_name}")
+                params[param_name] = value
+            elif op == "<=":
+                where_parts.append(f"{qualified_field} <= @{param_name}")
+                params[param_name] = value
+            elif op == ">":
+                where_parts.append(f"{qualified_field} > @{param_name}")
+                params[param_name] = value
+            elif op == ">=":
+                where_parts.append(f"{qualified_field} >= @{param_name}")
+                params[param_name] = value
+            elif op == "!=":
+                where_parts.append(f"{qualified_field} != @{param_name}")
+                params[param_name] = value
+            elif op == "IN":
+                # Create placeholders for each value in the list
+                placeholders = []
+                for i, val in enumerate(value):
+                    param_name_i = f"{param_name}_{i}"
+                    placeholders.append(f"@{param_name_i}")
+                    params[param_name_i] = val
+                where_parts.append(f"{qualified_field} IN ({', '.join(placeholders)})")
+            elif op == "NOT IN":
+                # Create placeholders for each value in the list
+                placeholders = []
+                for i, val in enumerate(value):
+                    param_name_i = f"{param_name}_{i}"
+                    placeholders.append(f"@{param_name_i}")
+                    params[param_name_i] = val
+                where_parts.append(f"{qualified_field} NOT IN ({', '.join(placeholders)})")
+            elif op == "LIKE":
+                where_parts.append(f"{qualified_field} LIKE @{param_name}")
+                params[param_name] = value
+            elif op == "ILIKE":
+                # Spanner doesn't have ILIKE, use LOWER() for case-insensitive
+                where_parts.append(f"LOWER({qualified_field}) LIKE LOWER(@{param_name})")
+                params[param_name] = value
+            elif op == "IS":
+                where_parts.append(f"{qualified_field} IS NULL")
+            elif op == "IS NOT":
+                where_parts.append(f"{qualified_field} IS NOT NULL")
+            elif op == "REGEX":
+                where_parts.append(f"REGEXP_CONTAINS({qualified_field}, @{param_name})")
+                params[param_name] = value
+            elif op == "BETWEEN":
+                start_param = f"{param_name}_start"
+                end_param = f"{param_name}_end"
+                where_parts.append(f"{qualified_field} BETWEEN @{start_param} AND @{end_param}")
+                params[start_param] = value[0]
+                params[end_param] = value[1]
 
         where_clause = " WHERE " + " AND ".join(where_parts) if where_parts else ""
 
+        # Add ORDER BY clause if set
+        order_by_clause = ""
+        if self.order_by_clauses:
+            order_by_clause = " ORDER BY " + ", ".join(self.order_by_clauses)
+
         # Add LIMIT clause if set
         limit_clause = f" LIMIT {self.limit_value}" if self.limit_value is not None else ""
+        
+        # Add OFFSET clause if set
+        offset_clause = f" OFFSET {self.offset_value}" if self.offset_value is not None else ""
 
         # Combine all parts
-        sql = select_clause + from_clause + where_clause + limit_clause
+        sql = select_clause + from_clause + where_clause + order_by_clause + limit_clause + offset_clause
 
         return sql, params, param_types
+
 
     def count(self) -> int:
         """

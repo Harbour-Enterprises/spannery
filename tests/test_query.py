@@ -227,3 +227,115 @@ def test_query_integration(spanner_session, test_organization, test_product):
 
     for product in high_stock_products:
         assert product.Stock >= 30
+
+
+def test_query_builder_new_filter_methods():
+    """Test new filter methods added to the Query builder."""
+    mock_db = MagicMock()
+    
+    # Test filter_not_in
+    query = Query(Product, mock_db)
+    query = query.filter_not_in("Category", ["A", "B", "C"])
+    assert query.filters[0] == ("Category", "NOT IN", ["A", "B", "C"])
+    
+    # Test filter_like
+    query = Query(Product, mock_db)
+    query = query.filter_like("Name", "Widget%")
+    assert query.filters[0] == ("Name", "LIKE", "Widget%")
+    
+    # Test filter_ilike
+    query = Query(Product, mock_db)
+    query = query.filter_ilike("Name", "%widget%")
+    assert query.filters[0] == ("Name", "ILIKE", "%widget%")
+    
+    # Test filter_is_null and filter_is_not_null
+    query = Query(Product, mock_db)
+    query = query.filter_is_null("Description")
+    assert query.filters[0] == ("Description", "IS", None)
+    
+    query = Query(Product, mock_db)
+    query = query.filter_is_not_null("Description")
+    assert query.filters[0] == ("Description", "IS NOT", None)
+    
+    # Test filter_regex
+    query = Query(Product, mock_db)
+    query = query.filter_regex("Name", r"^Widget.*$")
+    assert query.filters[0] == ("Name", "REGEX", r"^Widget.*$")
+    
+    # Test filter_between
+    query = Query(Product, mock_db)
+    query = query.filter_between("ListPrice", 10, 100)
+    assert query.filters[0] == ("ListPrice", "BETWEEN", (10, 100))
+    
+    # Test filter_or
+    query = Query(Product, mock_db)
+    query = query.filter_or({"Name": "John"}, {"Name": "Jane"})
+    field, op, value = query.filters[0]
+    assert field == "__OR__"
+    assert op == "OR"
+    assert len(value) == 2
+
+
+def test_query_builder_method_chaining():
+    """Test that all new filter methods support method chaining."""
+    mock_db = MagicMock()
+    query = Query(Product, mock_db)
+    
+    # Test chaining multiple new methods
+    chained_query = (query
+                    .filter_not_in("Category", ["A"])
+                    .filter_like("Name", "Widget%")
+                    .filter_is_not_null("Description")
+                    .filter_between("ListPrice", 10, 100))
+    
+    # Should return the same query object for chaining
+    assert chained_query is query
+    assert len(query.filters) == 4
+
+
+def test_build_query_new_operators():
+    """Test _build_query method with new operators."""
+    mock_db = MagicMock()
+    
+    # Test NOT IN
+    query = Query(Product, mock_db).filter_not_in("Category", ["A", "B"])
+    sql, params, _ = query._build_query()
+    assert "NOT IN" in sql
+    assert len([k for k in params.keys() if k.startswith("param_0_")]) == 2
+    
+    # Test LIKE
+    query = Query(Product, mock_db).filter_like("Name", "Widget%")
+    sql, params, _ = query._build_query()
+    assert "LIKE" in sql and "param_0" in params
+    
+    # Test ILIKE (case-insensitive)
+    query = Query(Product, mock_db).filter_ilike("Name", "%widget%")
+    sql, params, _ = query._build_query()
+    assert "LOWER(" in sql and "LIKE LOWER(" in sql
+    
+    # Test IS NULL/IS NOT NULL
+    query = Query(Product, mock_db).filter_is_null("Description")
+    sql, params, _ = query._build_query()
+    assert "IS NULL" in sql and len(params) == 0
+    
+    # Test BETWEEN
+    query = Query(Product, mock_db).filter_between("ListPrice", 10, 100)
+    sql, params, _ = query._build_query()
+    assert "BETWEEN" in sql and "param_0_start" in params and "param_0_end" in params
+    
+    # Test REGEX
+    query = Query(Product, mock_db).filter_regex("Name", r"^Widget.*$")
+    sql, params, _ = query._build_query()
+    assert "REGEXP_CONTAINS" in sql and "param_0" in params
+
+
+def test_build_query_or_conditions():
+    """Test _build_query method with OR conditions."""
+    mock_db = MagicMock()
+    
+    query = Query(Product, mock_db).filter_or({"Name": "John"}, {"Name": "Jane"})
+    sql, params, _ = query._build_query()
+    
+    assert "OR" in sql
+    assert "(" in sql and ")" in sql  # Should be wrapped in parentheses
+    assert len(params) == 2

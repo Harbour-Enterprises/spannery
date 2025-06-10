@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spannery"
-version = "0.1.15"
+version = "0.2.0"
 description = "A lightweight ORM for Google Cloud Spanner"
 readme = "README.md"
 requires-python = ">=3.10"
