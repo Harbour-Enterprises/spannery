@@ -14,3 +14,5 @@ dev/
 .tox/
 .cursor/rules/
 dev/
+.ruff_cache/
+coverage.xml
