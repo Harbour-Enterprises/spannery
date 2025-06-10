@@ -16,3 +16,4 @@ dev/
 dev/
 .ruff_cache/
 coverage.xml
+.benchmarks/
