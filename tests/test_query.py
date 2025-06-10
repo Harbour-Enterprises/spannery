@@ -171,9 +171,25 @@ def test_build_sql():
     assert params["p1"] == "B"
 
 
-def test_query_join():
+@patch("spannery.query.get_model_class")
+def test_query_join(mock_get_model_class):
     """Test simplified JOIN syntax."""
     mock_db = MagicMock()
+
+    # Mock the model classes
+    mock_organization_class = MagicMock()
+    mock_organization_class._table_name = "Organizations"
+    mock_media_class = MagicMock()
+    mock_media_class._table_name = "Media"
+
+    def get_model_side_effect(model_name):
+        if model_name == "Organization":
+            return mock_organization_class
+        elif model_name == "Media":
+            return mock_media_class
+        raise ValueError(f"Model class {model_name} not found in registry")
+
+    mock_get_model_class.side_effect = get_model_side_effect
 
     # Test basic join
     query = Query(Product, mock_db).join("Organization", on=("OrganizationID", "OrganizationID"))
@@ -344,7 +360,7 @@ def test_query_method_chaining():
 
     # Verify all settings were applied
     assert chained is query  # Same instance
-    assert len(query._filters) == 3
+    assert len(query._filters) == 4  # Category, Active, ListPrice__between, filter_or
     assert len(query._order_by) == 2
     assert query._limit == 10
     assert query._offset == 20

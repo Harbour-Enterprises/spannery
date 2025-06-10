@@ -16,7 +16,7 @@ from spannery.fields import (
     TimestampField,
 )
 from spannery.model import SpannerModel
-from spannery.query import JoinType, Query
+from spannery.query import Query
 from spannery.session import SpannerSession
 
 __version__ = "0.2.0"
@@ -25,7 +25,6 @@ __all__ = [
     "SpannerModel",
     "SpannerSession",
     "Query",
-    "JoinType",
     "StringField",
     "Int64Field",
     "NumericField",

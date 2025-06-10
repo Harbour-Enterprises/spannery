@@ -120,18 +120,10 @@ def test_get_related(mock_get_model_class):
     mock_org_class.get.assert_called_once_with(mock_db, **{"OrganizationID": "org-123"})
 
 
-@patch("spannery.utils.get_model_class")
-def test_query_join_simplified(mock_get_model_class):
+def test_query_join_simplified():
     """Test simplified join method in Query class."""
-    # Setup mock database and related model class
+    # Setup mock database
     mock_db = MagicMock()
-
-    # Mock User class
-    mock_user_class = MagicMock()
-    mock_user_class._table_name = "Users"
-
-    # Setup mock get_model_class to return our mock User class
-    mock_get_model_class.return_value = mock_user_class
 
     # Create a query with simplified join syntax
     query = Query(OrganizationUser, mock_db)
@@ -144,7 +136,7 @@ def test_query_join_simplified(mock_get_model_class):
     assert join_info["left_field"] == "UserID"
     assert join_info["right_field"] == "UserID"
     assert join_info["type"] == "INNER"
-    assert join_info["model"] == mock_user_class
+    assert join_info["model"] == User  # Should be the actual User class since it's registered
 
 
 def test_query_left_join():

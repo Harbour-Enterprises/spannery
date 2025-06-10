@@ -45,6 +45,17 @@ class Field:
 class StringField(Field):
     """String field type, maps to Spanner STRING type."""
 
+    def __init__(self, max_length: int | None = None, **kwargs):
+        """
+        Initialize a StringField.
+
+        Args:
+            max_length: Maximum length for the string (optional)
+            **kwargs: Additional field options
+        """
+        super().__init__(**kwargs)
+        self.max_length = max_length
+
     def to_db_value(self, value: Any) -> str | None:
         """Convert value to string for Spanner."""
         return str(value) if value is not None else None

@@ -176,7 +176,7 @@ def test_commit_timestamp_fields():
 
 
 @patch("google.cloud.spanner_v1.database.Database")
-def test_model_save():
+def test_model_save(mock_db_class):
     """Test model save method."""
     mock_db = MagicMock()
     mock_batch = MagicMock()
@@ -201,7 +201,7 @@ def test_model_save():
 
 
 @patch("google.cloud.spanner_v1.database.Database")
-def test_model_update():
+def test_model_update(mock_db_class):
     """Test model update method."""
     mock_db = MagicMock()
     mock_batch = MagicMock()
@@ -231,7 +231,7 @@ def test_model_update():
 
 
 @patch("google.cloud.spanner_v1.database.Database")
-def test_model_delete():
+def test_model_delete(mock_db_class):
     """Test model delete method."""
     mock_db = MagicMock()
     mock_batch = MagicMock()
@@ -256,7 +256,7 @@ def test_model_delete():
 
 
 @patch("google.cloud.spanner_v1.database.Database")
-def test_model_get():
+def test_model_get(mock_db_class):
     """Test model get method."""
     mock_db = MagicMock()
     mock_snapshot = MagicMock()
@@ -306,7 +306,7 @@ def test_get_or_404():
 
 
 @patch("google.cloud.spanner_v1.database.Database")
-def test_model_all():
+def test_model_all(mock_db_class):
     """Test model all method."""
     mock_db = MagicMock()
     mock_snapshot = MagicMock()
@@ -410,7 +410,8 @@ def test_commit_timestamp_in_save():
 
     # Check that commit timestamp fields are handled
     call_args = mock_batch.insert.call_args
-    assert call_args[1]["values"][0] == "COMMIT_TIMESTAMP"
+    # values[0] is the row, [1] is the created_at field (second field after event_id)
+    assert call_args[1]["values"][0][1] == "spanner.commit_timestamp()"
 
     # The field should handle the commit timestamp conversion
     # We can't check the exact value here as it depends on the field implementation
@@ -438,6 +439,7 @@ def test_commit_timestamp_in_update():
 
     # The update method should handle updated_at fields specially
     call_args = mock_batch.update.call_args
-    assert call_args[1]["values"][0] == "COMMIT_TIMESTAMP"
+    # values[0] is the row, [3] is the updated_at field (fourth field: doc_id, title, created_at, updated_at)
+    assert call_args[1]["values"][0][3] == "spanner.commit_timestamp()"
     # We can verify the method was called but the exact timestamp handling
     # is done in the field's to_db_value method

@@ -51,11 +51,11 @@ benchmark:
 
 tox:
 	@echo "🔄 Running tox tests..."
-	cd src && tox
+	tox
 
 tox-py-%:
 	@echo "🐍 Running tox for Python $*..."
-	cd src && tox -e py$*
+	tox -e py$*
 
 # Coverage targets
 ensure-diff-cover:
