@@ -2,19 +2,14 @@
 Model definitions for Spannery.
 """
 
-import json
-import logging
-from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, ClassVar, Dict, List, Optional, Type, TypeVar, Tuple, Union
+from typing import Any, ClassVar, TypeVar
 
-from google.cloud import spanner
 from google.cloud.spanner_v1.database import Database
 from google.cloud.spanner_v1.keyset import KeySet
 
 from spannery.exceptions import ModelDefinitionError, RecordNotFoundError
 from spannery.fields import DateTimeField, Field, ForeignKeyField
-
 from spannery.utils import register_model
 
 T = TypeVar("T", bound="SpannerModel")
@@ -23,7 +18,7 @@ T = TypeVar("T", bound="SpannerModel")
 class ModelMeta(type):
     """Metaclass for SpannerModel to process model fields and configuration."""
 
-    def __new__(mcs, name: str, bases: tuple, attrs: dict) -> Type:
+    def __new__(mcs, name: str, bases: tuple, attrs: dict) -> type:
         # Skip processing for the base SpannerModel class
         if name == "SpannerModel" and not bases:
             return super().__new__(mcs, name, bases, attrs)
@@ -63,13 +58,13 @@ class SpannerModel(metaclass=ModelMeta):
     """
 
     # Class variables for config
-    __tablename__: ClassVar[Optional[str]] = None
-    __interleave_in__: ClassVar[Optional[str]] = None
-    __on_delete__: ClassVar[Optional[str]] = "NO ACTION"  # CASCADE, NO ACTION
-    __relationships__: ClassVar[Dict[str, Dict]] = {}  # Will store relationship information
+    __tablename__: ClassVar[str | None] = None
+    __interleave_in__: ClassVar[str | None] = None
+    __on_delete__: ClassVar[str | None] = "NO ACTION"  # CASCADE, NO ACTION
+    __relationships__: ClassVar[dict[str, dict]] = {}  # Will store relationship information
 
     # Fields will be stored here by the metaclass
-    _fields: ClassVar[Dict[str, Field]] = {}
+    _fields: ClassVar[dict[str, Field]] = {}
     _table_name: ClassVar[str] = None
 
     @property
@@ -166,19 +161,19 @@ class SpannerModel(metaclass=ModelMeta):
 
         sql = f"""
         CREATE TABLE {cls._table_name} (
-            {', '.join(fields_sql)}
-        ) PRIMARY KEY ({', '.join(primary_keys)}){interleave_clause}{on_delete_clause}
+            {", ".join(fields_sql)}
+        ) PRIMARY KEY ({", ".join(primary_keys)}){interleave_clause}{on_delete_clause}
         """
 
         database.update_ddl([sql]).result()
         return True
 
     @classmethod
-    def _get_primary_keys(cls) -> List[str]:
+    def _get_primary_keys(cls) -> list[str]:
         """Get list of primary key field names."""
         return [name for name, field in cls._fields.items() if field.primary_key]
 
-    def _get_field_values(self) -> List[Any]:
+    def _get_field_values(self) -> list[Any]:
         """Get all field values formatted for Spanner."""
         values = []
         for name, field in self._fields.items():
@@ -312,7 +307,7 @@ class SpannerModel(metaclass=ModelMeta):
             raise type(e)(f"Error deleting {self._table_name}: {str(e)}") from e
 
     @classmethod
-    def get(cls: Type[T], database: Database, **kwargs) -> Optional[T]:
+    def get(cls: type[T], database: Database, **kwargs) -> T | None:
         """
         Retrieve a single model by filter conditions.
 
@@ -340,7 +335,7 @@ class SpannerModel(metaclass=ModelMeta):
         if not conditions:
             raise ModelDefinitionError("No valid filter conditions specified")
 
-        sql = f"SELECT * FROM {cls._table_name} WHERE {' AND '.join(conditions)} LIMIT 1"
+        sql = f"SELECT * FROM {cls._table_name} WHERE {' AND '.join(conditions)} LIMIT 1"  # nosec B608
 
         with database.snapshot() as snapshot:
             results = snapshot.execute_sql(sql, params=params, param_types=param_types)
@@ -358,7 +353,7 @@ class SpannerModel(metaclass=ModelMeta):
             return cls(**instance_data)
 
     @classmethod
-    def get_or_404(cls: Type[T], database: Database, **kwargs) -> T:
+    def get_or_404(cls: type[T], database: Database, **kwargs) -> T:
         """
         Retrieve a model by filter conditions or raise RecordNotFoundError.
 
@@ -379,7 +374,7 @@ class SpannerModel(metaclass=ModelMeta):
         return instance
 
     @classmethod
-    def all(cls: Type[T], database: Database) -> List[T]:
+    def all(cls: type[T], database: Database) -> list[T]:
         """
         Retrieve all instances of this model.
 
@@ -389,7 +384,7 @@ class SpannerModel(metaclass=ModelMeta):
         Returns:
             List[Model]: List of model instances
         """
-        sql = f"SELECT * FROM {cls._table_name}"
+        sql = f"SELECT * FROM {cls._table_name}"  # nosec B608
 
         with database.snapshot() as snapshot:
             results = snapshot.execute_sql(sql)
@@ -408,7 +403,7 @@ class SpannerModel(metaclass=ModelMeta):
             return instances
 
     @classmethod
-    def from_query_result(cls: Type[T], result_row, field_names) -> T:
+    def from_query_result(cls: type[T], result_row, field_names) -> T:
         """
         Create a model instance from a query result row.
 
@@ -453,7 +448,7 @@ class SpannerModel(metaclass=ModelMeta):
 
         return True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert model instance to a dictionary.
 
@@ -466,7 +461,7 @@ class SpannerModel(metaclass=ModelMeta):
         return result
 
     @classmethod
-    def from_dict(cls: Type[T], data: Dict[str, Any]) -> T:
+    def from_dict(cls: type[T], data: dict[str, Any]) -> T:
         """
         Create a model instance from a dictionary.
 
@@ -493,7 +488,6 @@ class SpannerModel(metaclass=ModelMeta):
         cls.__relationships__ = {}
 
         # Import here to avoid circular import
-        from spannery.fields import ForeignKeyField
 
         for name, field in cls._fields.items():
             if isinstance(field, ForeignKeyField):
@@ -503,7 +497,7 @@ class SpannerModel(metaclass=ModelMeta):
                     "related_name": field.related_name,
                 }
 
-    def get_related(self, field_name: str, database: Database) -> Optional[Any]:
+    def get_related(self, field_name: str, database: Database) -> Any | None:
         """
         Get a related model instance.
 

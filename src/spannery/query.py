@@ -2,10 +2,7 @@
 Query builder for Spannery.
 """
 
-import logging
-from abc import ABC, abstractmethod
-from enum import Enum
-from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Generic, TypeVar
 
 from google.cloud.spanner_v1.database import Database
 
@@ -47,7 +44,7 @@ class Query(Generic[T]):
         )
     """
 
-    def __init__(self, model_class: Type[T], database: Database):
+    def __init__(self, model_class: type[T], database: Database):
         """
         Initialize a query builder.
 
@@ -124,7 +121,7 @@ class Query(Generic[T]):
                 self.filters.append((key, ">=", value))
         return self
 
-    def filter_in(self, field: str, values: List[Any]) -> "Query[T]":
+    def filter_in(self, field: str, values: list[Any]) -> "Query[T]":
         """
         Add IN filter condition.
 
@@ -145,8 +142,8 @@ class Query(Generic[T]):
             if key in self.model_class._fields:
                 self.filters.append((key, "!=", value))
         return self
-    
-    def filter_not_in(self, field: str, values: List[Any]) -> "Query[T]":
+
+    def filter_not_in(self, field: str, values: list[Any]) -> "Query[T]":
         """
         Add NOT IN filter condition.
 
@@ -156,7 +153,7 @@ class Query(Generic[T]):
 
         Returns:
             Query: Self for method chaining
-            
+
         Example:
             # Get all products except those with specific IDs
             products = query.filter_not_in("ProductID", ["id1", "id2", "id3"])
@@ -176,11 +173,11 @@ class Query(Generic[T]):
 
         Returns:
             Query: Self for method chaining
-            
+
         Example:
             # Get all products with names starting with "Widget"
             products = query.filter_like("Name", "Widget%")
-            
+
             # Get all emails from gmail
             users = query.filter_like("Email", "%@gmail.com")
         """
@@ -202,7 +199,7 @@ class Query(Generic[T]):
 
         Returns:
             Query: Self for method chaining
-            
+
         Example:
             # Get all products with names containing "widget" (case-insensitive)
             products = query.filter_ilike("Name", "%widget%")
@@ -218,7 +215,7 @@ class Query(Generic[T]):
 
         Returns:
             Query: Self for method chaining
-            
+
         Example:
             # Get all products without a description
             products = query.filter_is_null("Description")
@@ -236,7 +233,7 @@ class Query(Generic[T]):
 
         Returns:
             Query: Self for method chaining
-            
+
         Example:
             # Get all products with a description
             products = query.filter_is_not_null("Description")
@@ -245,7 +242,7 @@ class Query(Generic[T]):
             self.filters.append((field, "IS NOT", None))
         return self
 
-    def filter_or(self, *conditions: Dict[str, Any]) -> "Query[T]":
+    def filter_or(self, *conditions: dict[str, Any]) -> "Query[T]":
         """
         Add OR filter conditions.
 
@@ -254,14 +251,14 @@ class Query(Generic[T]):
 
         Returns:
             Query: Self for method chaining
-            
+
         Example:
             # Get products that are either cheap OR on sale
             products = query.filter_or(
                 {"ListPrice__lt": 20},
                 {"OnSale": True}
             )
-            
+
             # Get users named John OR Jane
             users = query.filter_or(
                 {"Name": "John"},
@@ -270,7 +267,7 @@ class Query(Generic[T]):
         """
         if not conditions:
             return self
-            
+
         or_conditions = []
         for condition_dict in conditions:
             for field_op, value in condition_dict.items():
@@ -279,15 +276,15 @@ class Query(Generic[T]):
                     or_conditions.append((field, op.upper(), value))
                 else:
                     or_conditions.append((field_op, "=", value))
-        
+
         if or_conditions:
             self.filters.append(("__OR__", "OR", or_conditions))
         return self
 
     def filter_regex(self, field: str, pattern: str) -> "Query[T]":
-        """
+        r"""
         Filter using regular expression matching.
-        
+
         Note: This uses Spanner's REGEXP_CONTAINS function.
 
         Args:
@@ -296,7 +293,7 @@ class Query(Generic[T]):
 
         Returns:
             Query: Self for method chaining
-            
+
         Example:
             # Get all emails from specific domains
             users = query.filter_regex("Email", r".*@(gmail|yahoo)\.com$")
@@ -305,7 +302,9 @@ class Query(Generic[T]):
             self.filters.append((field, "REGEX", pattern))
         return self
 
-    def filter_between(self, field: str, start: Any, end: Any, inclusive: bool = True) -> "Query[T]":
+    def filter_between(
+        self, field: str, start: Any, end: Any, inclusive: bool = True
+    ) -> "Query[T]":
         """
         Filter values between a range.
 
@@ -317,7 +316,7 @@ class Query(Generic[T]):
 
         Returns:
             Query: Self for method chaining
-            
+
         Example:
             # Get products priced between $10 and $100
             products = query.filter_between("ListPrice", 10, 100)
@@ -374,11 +373,11 @@ class Query(Generic[T]):
 
     def join(
         self,
-        related_model: Union[str, Type[SpannerModel]],
+        related_model: str | type[SpannerModel],
         from_field: str,
         to_field: str,
         join_type: str = JoinType.INNER,
-        alias: Optional[str] = None,
+        alias: str | None = None,
     ) -> "Query[T]":
         """
         Add a JOIN clause to the query.
@@ -431,7 +430,7 @@ class Query(Generic[T]):
             self.filters.append((f"{table_name}.{key}", "=", value))
         return self
 
-    def _build_query(self) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+    def _build_query(self) -> tuple[str, dict[str, Any], dict[str, Any]]:
         """
         Build the SQL query with parameters.
 
@@ -443,7 +442,7 @@ class Query(Generic[T]):
             select_clause = f"SELECT {', '.join(self.select_fields)} "
         else:
             select_clause = "SELECT * "
-        
+
         from_clause = f"FROM {self.model_class._table_name} AS t0"
 
         # Add JOIN clauses if any
@@ -459,14 +458,14 @@ class Query(Generic[T]):
 
         for filter_item in self.filters:
             field, op, value = filter_item
-            
+
             # Handle OR conditions specially
             if field == "__OR__":
                 or_parts = []
                 for or_field, or_op, or_value in value:
                     param_name = f"param_{param_counter}"
                     param_counter += 1
-                    
+
                     if or_op == "=":
                         or_parts.append(f"t0.{or_field} = @{param_name}")
                     elif or_op in ["LT", "<"]:
@@ -474,18 +473,18 @@ class Query(Generic[T]):
                     elif or_op in ["GT", ">"]:
                         or_parts.append(f"t0.{or_field} > @{param_name}")
                     # Add other operators as needed
-                    
+
                     params[param_name] = or_value
-                    
+
                 if or_parts:
                     where_parts.append(f"({' OR '.join(or_parts)})")
                 continue
-            
+
             # Check if the field is table-qualified
             if "." in field:
                 # Extract table name and field name
                 table_name, field_name = field.split(".")
-                
+
                 # Convert table name to alias if it exists in table_aliases
                 if table_name in self.table_aliases:
                     alias = self.table_aliases[table_name]
@@ -564,15 +563,21 @@ class Query(Generic[T]):
 
         # Add LIMIT clause if set
         limit_clause = f" LIMIT {self.limit_value}" if self.limit_value is not None else ""
-        
+
         # Add OFFSET clause if set
         offset_clause = f" OFFSET {self.offset_value}" if self.offset_value is not None else ""
 
         # Combine all parts
-        sql = select_clause + from_clause + where_clause + order_by_clause + limit_clause + offset_clause
+        sql = (
+            select_clause
+            + from_clause
+            + where_clause
+            + order_by_clause
+            + limit_clause
+            + offset_clause
+        )
 
         return sql, params, param_types
-
 
     def count(self) -> int:
         """
@@ -592,7 +597,7 @@ class Query(Generic[T]):
             )
 
         # Build the count query
-        count_sql = f"SELECT COUNT(*) FROM {self.model_class._table_name}"
+        count_sql = f"SELECT COUNT(*) FROM {self.model_class._table_name}"  # nosec B608
         if where_clause:
             count_sql += f" {where_clause}"
 
@@ -601,7 +606,7 @@ class Query(Generic[T]):
             row = list(results)[0]
             return row[0]
 
-    def all(self) -> List[T]:
+    def all(self) -> list[T]:
         """
         Execute query and return all results.
 
@@ -673,11 +678,11 @@ class Query(Generic[T]):
                     # If we don't have field names but have rows, create instances with minimal info
                     # This might not be ideal but ensures tests don't break
                     instances = []
-                    for i, row in enumerate(rows):
+                    for _i, row in enumerate(rows):
                         # Create a dictionary with estimated field names based on model fields
                         # This is a best-effort approach for tests
                         field_names = list(self.model_class._fields.keys())
-                        row_data = dict(zip(field_names[: len(row)], row))
+                        row_data = dict(zip(field_names[: len(row)], row, strict=False))
                         instance = self.model_class(**row_data)
                         instances.append(instance)
 
@@ -688,7 +693,7 @@ class Query(Generic[T]):
             print(f"Error executing query: {e}")
             return []
 
-    def first(self) -> Optional[T]:
+    def first(self) -> T | None:
         """
         Get first result or None.
 

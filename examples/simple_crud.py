@@ -360,7 +360,7 @@ def main():
         database_id = "emulator-db"
         os.environ["SPANNER_EMULATOR_HOST"] = "localhost:9010"
 
-    print(f"Connecting to Spanner database:")
+    print("Connecting to Spanner database:")
     print(f"- Project: {project_id}")
     print(f"- Instance: {instance_id}")
     print(f"- Database: {database_id}")

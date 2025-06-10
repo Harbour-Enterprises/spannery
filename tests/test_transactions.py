@@ -6,8 +6,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from conftest import Organization, Product
 
-from spannery.exceptions import ModelDefinitionError
-
 
 @patch("google.cloud.spanner_v1.database.Database")
 def test_save_with_transaction(mock_db):
@@ -203,8 +201,9 @@ def test_transaction_rollback(spanner_session):
 
             # This will cause an error - trying to insert a duplicate organization
             org.save(database, transaction=transaction)
-    except Exception:
+    except Exception:  # nosec B110
         # Expected exception, transaction should be rolled back
+        # This is intentional for testing rollback behavior
         pass
 
     # Verify organization exists (it was saved outside the transaction)

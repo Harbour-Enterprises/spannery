@@ -2,15 +2,14 @@
 Session management for Spannery.
 """
 
-import logging
 from contextlib import contextmanager
-from typing import Any, Dict, Generator, List, Optional, Type, TypeVar, Union
+from typing import TypeVar
 
 from google.cloud.spanner_v1.database import Database
 
 from spannery.exceptions import ConnectionError, TransactionError
 from spannery.model import SpannerModel
-from spannery.query import JoinType, Query
+from spannery.query import Query
 
 T = TypeVar("T", bound=SpannerModel)
 
@@ -83,7 +82,7 @@ class SpannerSession:
         except Exception as e:
             raise TransactionError(f"Error deleting {model.__class__.__name__}: {str(e)}") from e
 
-    def query(self, model_class: Type[T]) -> Query[T]:
+    def query(self, model_class: type[T]) -> Query[T]:
         """
         Create a query for a model class.
 
@@ -95,7 +94,7 @@ class SpannerSession:
         """
         return Query(model_class, self.database)
 
-    def get(self, model_class: Type[T], **kwargs) -> Optional[T]:
+    def get(self, model_class: type[T], **kwargs) -> T | None:
         """
         Get a single model instance by filter conditions.
 
@@ -108,7 +107,7 @@ class SpannerSession:
         """
         return model_class.get(self.database, **kwargs)
 
-    def get_or_404(self, model_class: Type[T], **kwargs) -> T:
+    def get_or_404(self, model_class: type[T], **kwargs) -> T:
         """
         Get a model instance or raise RecordNotFoundError.
 
@@ -149,7 +148,7 @@ class SpannerSession:
 
         return model
 
-    def exists(self, model_class: Type[SpannerModel], **kwargs) -> bool:
+    def exists(self, model_class: type[SpannerModel], **kwargs) -> bool:
         """
         Check if a record exists matching the conditions.
 
@@ -163,7 +162,7 @@ class SpannerSession:
         query = self.query(model_class).filter(**kwargs).limit(1)
         return query.count() > 0
 
-    def all(self, model_class: Type[T]) -> List[T]:
+    def all(self, model_class: type[T]) -> list[T]:
         """
         Get all instances of a model.
 
@@ -175,7 +174,7 @@ class SpannerSession:
         """
         return model_class.all(self.database)
 
-    def create(self, model_class: Type[T], **kwargs) -> T:
+    def create(self, model_class: type[T], **kwargs) -> T:
         """
         Create and save a new model instance.
 
@@ -189,7 +188,7 @@ class SpannerSession:
         instance = model_class(**kwargs)
         return self.save(instance)
 
-    def get_or_create(self, model_class: Type[T], defaults=None, **kwargs) -> tuple[T, bool]:
+    def get_or_create(self, model_class: type[T], defaults=None, **kwargs) -> tuple[T, bool]:
         """
         Get a model instance or create it if it doesn't exist.
 
@@ -291,7 +290,7 @@ class SpannerSession:
         return model.get_related(field_name, self.database)
 
     def join_query(
-        self, model_class: Type[T], related_model, from_field: str, to_field: str
+        self, model_class: type[T], related_model, from_field: str, to_field: str
     ) -> Query[T]:
         """
         Create a query with a JOIN pre-configured.

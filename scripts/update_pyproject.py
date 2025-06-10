@@ -4,12 +4,12 @@ import toml
 
 
 def update_pyproject(dependencies):
-    pyproject_path = "src/pyproject.toml"
+    pyproject_path = "pyproject.toml"
     if not os.path.exists(pyproject_path):
         print(f"{pyproject_path} not found.")
         return
 
-    with open(pyproject_path, "r") as file:
+    with open(pyproject_path) as file:
         pyproject = toml.load(file)
 
     pyproject["project"]["dependencies"] = dependencies
@@ -25,7 +25,7 @@ def get_frozen_dependencies(requirements_file):
         print(f"{requirements_file} not found.")
         return []
 
-    with open(requirements_file, "r") as file:
+    with open(requirements_file) as file:
         lines = file.readlines()
 
     dependencies = [line.strip() for line in lines if line.strip() and not line.startswith("#")]

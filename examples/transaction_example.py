@@ -16,18 +16,16 @@ If no arguments are provided, it will use emulator settings.
 import os
 import sys
 import uuid
-from datetime import datetime
 
 from google.cloud import spanner
 
 from spannery.fields import (
-    BooleanField,
     DateTimeField,
     IntegerField,
     NumericField,
     StringField,
 )
-from spannery.model import SpannerModel, SpannerSession
+from spannery.model import SpannerModel
 
 
 # Define models

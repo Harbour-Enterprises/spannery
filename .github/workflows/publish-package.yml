@@ -98,7 +98,6 @@ jobs:
           git push
 
       - name: Build package and publish
-        working-directory: src
         env:
           PYPI_REPOSITORY: ${{ inputs.environment == 'production' && 'pypi' || 'testpypi' }}
           PYPI_TOKEN: ${{ inputs.environment == 'production' && secrets.PYPI_TOKEN || secrets.TEST_PYPI_TOKEN }}

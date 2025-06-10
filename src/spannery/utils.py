@@ -4,9 +4,8 @@ Utility functions for Spannery.
 
 import datetime
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from google.cloud import spanner
 from google.cloud.spanner_v1.client import Client
 from google.cloud.spanner_v1.database import Database
 from google.cloud.spanner_v1.instance import Instance
@@ -54,7 +53,7 @@ def utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def get_param_type(value: Any) -> Optional[Type]:
+def get_param_type(value: Any) -> Type | None:
     """
     Get Spanner parameter type for a Python value.
 
@@ -97,7 +96,7 @@ def get_param_type(value: Any) -> Optional[Type]:
     return None
 
 
-def build_param_types(params: Dict[str, Any]) -> Dict[str, Type]:
+def build_param_types(params: dict[str, Any]) -> dict[str, Type]:
     """
     Build parameter types dictionary for Spanner.
 
@@ -118,8 +117,8 @@ def build_param_types(params: Dict[str, Any]) -> Dict[str, Type]:
 def verify_relation_exists(
     database: Database,
     table_name: str,
-    primary_key_columns: List[str],
-    primary_key_values: List[Any],
+    primary_key_columns: list[str],
+    primary_key_values: list[Any],
 ) -> bool:
     """
     Verify that a relation exists in the database.
@@ -140,14 +139,14 @@ def verify_relation_exists(
     param_types = {}
     where_conditions = []
 
-    for i, (col, val) in enumerate(zip(primary_key_columns, primary_key_values)):
+    for i, (col, val) in enumerate(zip(primary_key_columns, primary_key_values, strict=False)):
         param_name = f"pk_{i}"
         params[param_name] = val
         param_types[param_name] = get_param_type(val)
         where_conditions.append(f"{col} = @{param_name}")
 
     where_clause = " AND ".join(where_conditions)
-    sql = f"SELECT COUNT(*) FROM {table_name} WHERE {where_clause}"
+    sql = f"SELECT COUNT(*) FROM {table_name} WHERE {where_clause}"  # nosec B608
 
     with database.snapshot() as snapshot:
         result = snapshot.execute_sql(sql, params=params, param_types=param_types)
@@ -203,7 +202,7 @@ def execute_with_retry(
     raise last_exception if last_exception else RuntimeError("Unknown error in execute_with_retry")
 
 
-def get_table_schema(database: Database, table_name: str) -> List[Dict[str, Any]]:
+def get_table_schema(database: Database, table_name: str) -> list[dict[str, Any]]:
     """
     Get schema information for a table.
 
@@ -246,7 +245,7 @@ def get_table_schema(database: Database, table_name: str) -> List[Dict[str, Any]
     return columns
 
 
-def get_primary_keys(database: Database, table_name: str) -> List[str]:
+def get_primary_keys(database: Database, table_name: str) -> list[str]:
     """
     Get primary key column names for a table.
 
@@ -282,8 +281,8 @@ def get_primary_keys(database: Database, table_name: str) -> List[str]:
 
 
 def create_spanner_client(
-    project_id: str, instance_id: str, database_id: str, credentials_path: Optional[str] = None
-) -> Tuple[Client, Instance, Database]:
+    project_id: str, instance_id: str, database_id: str, credentials_path: str | None = None
+) -> tuple[Client, Instance, Database]:
     """
     Create Spanner client, instance, and database objects.
 

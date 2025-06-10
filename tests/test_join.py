@@ -15,7 +15,6 @@ from spannery.fields import (
 from spannery.model import SpannerModel
 from spannery.query import JoinType, Query
 from spannery.session import SpannerSession
-from spannery.utils import get_model_class, register_model
 
 
 # Test models for relationship and JOIN tests
@@ -105,7 +104,7 @@ def test_model_relationships_processing():
     # Create model instances for testing
     org = Organization(Name="Test Org")
     user = User(Email="test@example.com", FullName="Test User")
-    org_user = OrganizationUser(OrganizationID=org.OrganizationID, UserID=user.UserID, Role="ADMIN")
+    OrganizationUser(OrganizationID=org.OrganizationID, UserID=user.UserID, Role="ADMIN")
 
     # Check relationships processing
     OrganizationUser._process_relationships()
@@ -265,7 +264,7 @@ def test_session_join_query():
         mock_query_class.return_value = mock_query
 
         # Call join_query
-        result = session.join_query(Organization, User, "OrganizationID", "UserID")
+        session.join_query(Organization, User, "OrganizationID", "UserID")
 
         # Verify the correct methods were called
         mock_query_class.assert_called_once_with(Organization, mock_db)
@@ -334,7 +333,7 @@ def test_build_query_with_joins():
 
     # Mock _build_query to avoid actually calling it
     orig_build_query = query._build_query
-    with patch.object(query, "_build_query", wraps=orig_build_query) as mock_build:
+    with patch.object(query, "_build_query", wraps=orig_build_query):
         sql, params, param_types = query._build_query()
 
     # Verify SQL generation includes JOIN and WHERE

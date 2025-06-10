@@ -4,7 +4,7 @@ Field definitions for Spannery models.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from google.cloud.spanner_v1 import JsonObject
 
@@ -19,7 +19,7 @@ class Field:
         default: Any = None,
         index: bool = False,
         unique: bool = False,
-        description: Optional[str] = None,
+        description: str | None = None,
     ):
         """
         Initialize a Field instance.
@@ -56,7 +56,7 @@ class Field:
 class StringField(Field):
     """String field type, maps to Spanner STRING type."""
 
-    def __init__(self, max_length: Optional[int] = None, **kwargs):
+    def __init__(self, max_length: int | None = None, **kwargs):
         """
         Initialize a StringField.
 
@@ -67,7 +67,7 @@ class StringField(Field):
         super().__init__(**kwargs)
         self.max_length = max_length
 
-    def to_db_value(self, value: Any) -> Optional[str]:
+    def to_db_value(self, value: Any) -> str | None:
         """Convert value to string for Spanner."""
         return str(value) if value is not None else None
 
@@ -81,7 +81,7 @@ class StringField(Field):
 class NumericField(Field):
     """Numeric field type, maps to Spanner NUMERIC type."""
 
-    def __init__(self, precision: Optional[int] = None, scale: Optional[int] = None, **kwargs):
+    def __init__(self, precision: int | None = None, scale: int | None = None, **kwargs):
         """
         Initialize a NumericField.
 
@@ -94,7 +94,7 @@ class NumericField(Field):
         self.precision = precision
         self.scale = scale
 
-    def to_db_value(self, value: Any) -> Optional[Decimal]:
+    def to_db_value(self, value: Any) -> Decimal | None:
         """Convert value to Decimal for Spanner."""
         if value is None:
             return None
@@ -110,7 +110,7 @@ class NumericField(Field):
 class IntegerField(Field):
     """Integer field type, maps to Spanner INT64 type."""
 
-    def to_db_value(self, value: Any) -> Optional[int]:
+    def to_db_value(self, value: Any) -> int | None:
         """Convert value to int for Spanner."""
         return int(value) if value is not None else None
 
@@ -122,7 +122,7 @@ class IntegerField(Field):
 class BooleanField(Field):
     """Boolean field type, maps to Spanner BOOL type."""
 
-    def to_db_value(self, value: Any) -> Optional[bool]:
+    def to_db_value(self, value: Any) -> bool | None:
         """Convert value to bool for Spanner."""
         if value is None:
             return None
@@ -174,7 +174,7 @@ class DateTimeField(Field):
         if (auto_now_add or auto_now) and kwargs.get("default") is None:
             self.default = lambda: datetime.now()
 
-    def to_db_value(self, value: Any) -> Optional[datetime]:
+    def to_db_value(self, value: Any) -> datetime | None:
         """Convert value to datetime for Spanner."""
         if value is None:
             return None
@@ -182,6 +182,7 @@ class DateTimeField(Field):
         # For auto_now fields, return current time regardless of input
         if self.auto_now:
             from spannery.utils import utcnow
+
             return utcnow()
 
         if isinstance(value, str):
@@ -192,6 +193,7 @@ class DateTimeField(Field):
                 # If not a valid ISO format, and we have auto fields, use current time
                 if self.auto_now_add:
                     from spannery.utils import utcnow
+
                     return utcnow()
                 # Otherwise re-raise
                 raise
@@ -208,7 +210,7 @@ class DateTimeField(Field):
 class DateField(Field):
     """Date field type, maps to Spanner DATE type."""
 
-    def to_db_value(self, value: Any) -> Optional[datetime.date]:
+    def to_db_value(self, value: Any) -> datetime.date | None:
         """Convert value to date for Spanner."""
         if value is None:
             return None
@@ -227,7 +229,7 @@ class DateField(Field):
 class FloatField(Field):
     """Float field type, maps to Spanner FLOAT64 type."""
 
-    def to_db_value(self, value: Any) -> Optional[float]:
+    def to_db_value(self, value: Any) -> float | None:
         """Convert value to float for Spanner."""
         if value is None:
             return None
@@ -242,7 +244,7 @@ class FloatField(Field):
 class BytesField(Field):
     """Bytes field type, maps to Spanner BYTES type."""
 
-    def __init__(self, max_length: Optional[int] = None, **kwargs):
+    def __init__(self, max_length: int | None = None, **kwargs):
         """
         Initialize a BytesField.
 
@@ -274,7 +276,7 @@ class ArrayField(Field):
         super().__init__(**kwargs)
         self.item_field = item_field
 
-    def to_db_value(self, value: Any) -> Optional[list]:
+    def to_db_value(self, value: Any) -> list | None:
         """Convert value to list for Spanner, processing each item."""
         if value is None:
             return None
@@ -311,7 +313,7 @@ class JsonField(Field):
         tags = product.metadata["tags"]
     """
 
-    def to_db_value(self, value: Any) -> Optional[Any]:
+    def to_db_value(self, value: Any) -> Any | None:
         """
         Convert Python dict/list/primitive to Spanner JSON.
 
@@ -362,7 +364,7 @@ class ForeignKeyField(Field):
     def __init__(
         self,
         related_model: str,
-        related_name: Optional[str] = None,
+        related_name: str | None = None,
         cascade_delete: bool = False,
         **kwargs,
     ):

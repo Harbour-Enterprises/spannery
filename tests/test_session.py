@@ -1,13 +1,10 @@
 """Tests for SpannerSession."""
 
-import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from conftest import Organization, Product
+from conftest import Product
 
-from spannery.exceptions import RecordNotFoundError
-from spannery.query import Query
 from spannery.session import SpannerSession
 
 

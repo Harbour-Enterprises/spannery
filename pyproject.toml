@@ -18,6 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
+
 [[project.authors]]
 name = "Caio Pizzol"
 email = "caiopizzol@gmail.com"
@@ -25,11 +26,27 @@ email = "caiopizzol@gmail.com"
 [project.license]
 file = "LICENSE"
 
-[tool.black]
-line-length = 100
+[tool.ruff]
+line-length = 100  # Match your current Black config
+target-version = "py310"  # Based on Spannery's requirements
 
-[tool.isort]
-profile = "black"
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # Line too long (handled by formatter)
+]
+
+[tool.bandit]
+exclude_dirs = [".tox", "venv", ".venv", "build", "dist"]
+skips = ["B101"]  # Skip assert_used test
 
 [tool.pytest.ini_options]
 minversion = "6.0"

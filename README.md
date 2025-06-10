@@ -214,7 +214,7 @@ Beyond basic equality filters, Spannery supports advanced filtering:
 
 - `filter_not_in(field, values)`: Exclude values from a list
 - `filter_like(field, pattern)`: Pattern matching with wildcards (%)
-- `filter_ilike(field, pattern)`: Case-insensitive pattern matching  
+- `filter_ilike(field, pattern)`: Case-insensitive pattern matching
 - `filter_between(field, start, end)`: Range filtering
 - `filter_is_null(field)` / `filter_is_not_null(field)`: NULL checks
 - `filter_regex(field, pattern)`: Regular expression matching

@@ -6,10 +6,8 @@ to show how to define models with relationships and perform JOINs.
 """
 
 import os
-from datetime import datetime, timezone
 
 from google.cloud import spanner
-from google.cloud.spanner_v1.database import Database
 
 from spannery import (
     BooleanField,

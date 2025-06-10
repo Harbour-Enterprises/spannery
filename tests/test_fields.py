@@ -370,10 +370,13 @@ class TestJsonField:
 
     def test_json_field_with_default_callable(self):
         """Test JsonField with a callable default value."""
-        default_callable = lambda: {
-            "timestamp": datetime.datetime.now().isoformat(),
-            "status": "new",
-        }
+
+        def default_callable():
+            return {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "status": "new",
+            }
+
         field = JsonField(default=default_callable)
 
         # Ensure the default is still the callable
@@ -466,7 +469,6 @@ class TestForeignKeyField:
 
     def test_foreign_key_field_creation(self):
         """Test ForeignKeyField creation with various options."""
-        from spannery.fields import ForeignKeyField
 
         # Default initialization
         field = ForeignKeyField("TestModel")
@@ -497,7 +499,7 @@ class TestForeignKeyField:
 
     def test_foreign_key_to_db_value(self):
         """Test ForeignKeyField.to_db_value() method."""
-        from spannery.fields import ForeignKeyField, StringField
+        from spannery.fields import StringField
         from spannery.model import SpannerModel
 
         # Create a test model class
@@ -520,7 +522,6 @@ class TestForeignKeyField:
 
     def test_foreign_key_from_db_value(self):
         """Test ForeignKeyField.from_db_value() method."""
-        from spannery.fields import ForeignKeyField
 
         field = ForeignKeyField("TestModel")
 

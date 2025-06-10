@@ -2,11 +2,10 @@
 
 import os
 import uuid
+from collections.abc import Generator
 from datetime import datetime, timezone
-from typing import Generator
 
 import pytest
-from google.cloud import spanner
 from google.cloud.spanner_v1.client import Client
 from google.cloud.spanner_v1.database import Database
 from google.cloud.spanner_v1.instance import Instance
