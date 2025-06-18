@@ -371,12 +371,17 @@ class Query(Generic[T]):
             )
 
         # Use snapshot if provided (for read-only transactions)
-        snapshot = self._snapshot or self.database.snapshot()
-
-        with snapshot:
-            return snapshot.execute_sql(
+        if self._snapshot:
+            # If we already have a snapshot (from read-only transaction), use it directly
+            return self._snapshot.execute_sql(
                 sql, params=params, param_types=param_types, request_options=request_options
             )
+        else:
+            # Create a new snapshot for this query
+            with self.database.snapshot() as snapshot:
+                return snapshot.execute_sql(
+                    sql, params=params, param_types=param_types, request_options=request_options
+                )
 
     def count(self) -> int:
         """
@@ -385,30 +390,86 @@ class Query(Generic[T]):
         Returns:
             int: Number of matching records
         """
-        # Build WHERE clause only
-        sql, params = self._build_sql()
+        # Don't try to parse SQL strings - build a proper COUNT query
+        # using the same components but simplified
 
-        # Extract FROM and WHERE parts
-        from_index = sql.index("FROM")
-        where_index = sql.find("WHERE")
+        # Build parameter dictionary
+        params = {}
+        param_counter = 0
 
-        if where_index > 0:
-            order_index = sql.find("ORDER BY")
-            if order_index > 0:
-                where_part = sql[where_index:order_index]
-            else:
-                limit_index = sql.find("LIMIT")
-                if limit_index > 0:
-                    where_part = sql[where_index:limit_index]
+        # Build WHERE clause from scratch using our filters
+        where_parts = []
+
+        for field, op, value in self._filters:
+            # Handle OR conditions
+            if field == "__OR__":
+                or_parts = []
+                for condition_dict in value:
+                    for cond_key, cond_value in condition_dict.items():
+                        if "__" in cond_key:
+                            cond_field, cond_op = cond_key.split("__", 1)
+                        else:
+                            cond_field, cond_op = cond_key, "eq"
+
+                        param_name = f"p{param_counter}"
+                        param_counter += 1
+                        params[param_name] = cond_value
+
+                        or_parts.append(self._build_condition(cond_field, cond_op, param_name))
+
+                if or_parts:
+                    where_parts.append(f"({' OR '.join(or_parts)})")
+                continue
+
+            # Regular conditions
+            if op == "is_null":
+                if value:
+                    where_parts.append(f"{field} IS NULL")
                 else:
-                    where_part = sql[where_index:]
+                    where_parts.append(f"{field} IS NOT NULL")
+            elif op == "between":
+                param_start = f"p{param_counter}"
+                param_end = f"p{param_counter + 1}"
+                param_counter += 2
+                params[param_start] = value[0]
+                params[param_end] = value[1]
+                where_parts.append(f"{field} BETWEEN @{param_start} AND @{param_end}")
+            elif op in ("in", "not_in"):
+                # Handle IN/NOT IN with multiple parameters
+                param_names = []
+                for v in value:
+                    param_name = f"p{param_counter}"
+                    param_counter += 1
+                    params[param_name] = v
+                    param_names.append(f"@{param_name}")
 
-            from_part = sql[from_index:where_index]
-            count_sql = f"SELECT COUNT(*) {from_part} {where_part}"  # nosec B608
-        else:
-            from_part = sql[from_index:].split("ORDER BY")[0].split("LIMIT")[0].strip()
-            count_sql = f"SELECT COUNT(*) {from_part}"
+                operator = "IN" if op == "in" else "NOT IN"
+                where_parts.append(f"{field} {operator} ({', '.join(param_names)})")
+            else:
+                param_name = f"p{param_counter}"
+                param_counter += 1
+                params[param_name] = value
+                where_parts.append(self._build_condition(field, op, param_name))
 
+        # Build FROM clause with JOINs if needed
+        from_clause = self.model_class._table_name
+
+        # Add JOINs if present
+        for join in self._joins:
+            join_type = join["type"]
+            related_table = join["model"]._table_name
+            left_field = join["left_field"]
+            right_field = join["right_field"]
+
+            from_clause += f" {join_type} JOIN {related_table} ON {self.model_class._table_name}.{left_field} = {related_table}.{right_field}"
+
+        # Build the complete COUNT query
+        count_sql = f"SELECT COUNT(*) FROM {from_clause}"  # nosec B608
+
+        if where_parts:
+            count_sql += f" WHERE {' AND '.join(where_parts)}"
+
+        # Execute the count query
         results = self._execute(count_sql, params)
         return list(results)[0][0]
 

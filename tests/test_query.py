@@ -204,28 +204,144 @@ def test_query_join(mock_get_model_class):
     assert query._joins[0]["type"] == "LEFT"
 
 
-@patch("spannery.query.Query._build_sql")
-@patch("spannery.query.Query._execute")
-def test_query_count(mock_execute, mock_build_sql):
-    """Test query count method."""
+def test_query_execute_with_snapshot():
+    """Test _execute method with and without snapshot."""
     mock_db = MagicMock()
     query = Query(Product, mock_db)
 
-    # Mock the SQL building and execution
-    mock_build_sql.return_value = ("SELECT * FROM Products WHERE Active = @p0", {"p0": True})
-    mock_result = MagicMock()
-    mock_result.__iter__.return_value = [(5,)]
-    mock_execute.return_value = mock_result
+    # Test without snapshot (creates its own)
+    mock_snapshot = MagicMock()
+    mock_db.snapshot.return_value.__enter__.return_value = mock_snapshot
+    mock_snapshot.execute_sql.return_value = [(5,)]
 
-    result = query.filter(Active=True).count()
-    assert result == 5
+    query._execute("SELECT COUNT(*) FROM Products", {})
 
-    # Verify count SQL was built correctly
-    mock_execute.assert_called_once()
-    count_sql = mock_execute.call_args[0][0]
-    assert "SELECT COUNT(*)" in count_sql
-    assert "FROM Products" in count_sql
-    assert "WHERE" in count_sql
+    mock_db.snapshot.assert_called_once()
+    mock_snapshot.execute_sql.assert_called_once()
+
+    # Test with existing snapshot (from read-only transaction)
+    mock_existing_snapshot = MagicMock()
+    mock_existing_snapshot.execute_sql.return_value = [(10,)]
+    query._snapshot = mock_existing_snapshot
+
+    query._execute("SELECT COUNT(*) FROM Products", {})
+
+    # Should use existing snapshot, not create a new one
+    mock_existing_snapshot.execute_sql.assert_called_once()
+    # Database snapshot should still only be called once (from first test)
+    mock_db.snapshot.assert_called_once()
+
+
+def test_query_count_new_implementation():
+    """Test the new count implementation that builds SQL from scratch."""
+    mock_db = MagicMock()
+
+    # Mock the database snapshot
+    mock_snapshot = MagicMock()
+    mock_db.snapshot.return_value.__enter__.return_value = mock_snapshot
+    mock_snapshot.execute_sql.return_value = [(42,)]
+
+    # Test simple count
+    query = Query(Product, mock_db).filter(Active=True)
+    count = query.count()
+
+    assert count == 42
+
+    # Verify the SQL was built correctly
+    call_args = mock_snapshot.execute_sql.call_args
+    sql = call_args[0][0]
+    params = call_args[1]["params"]
+
+    assert "SELECT COUNT(*) FROM Products" in sql
+    assert "WHERE Active = @p0" in sql
+    assert params["p0"] is True
+
+    # Test count with complex filters
+    mock_snapshot.execute_sql.reset_mock()
+    mock_snapshot.execute_sql.return_value = [(15,)]
+
+    query = Query(Product, mock_db).filter(
+        Category="Electronics", ListPrice__between=(50, 200), Active=True
+    )
+    count = query.count()
+
+    assert count == 15
+
+    # Verify complex SQL
+    call_args = mock_snapshot.execute_sql.call_args
+    sql = call_args[0][0]
+    params = call_args[1]["params"]
+
+    assert "SELECT COUNT(*) FROM Products" in sql
+    assert "Category = @p0" in sql
+    assert "ListPrice BETWEEN @p1 AND @p2" in sql
+    assert "Active = @p3" in sql
+    assert params["p0"] == "Electronics"
+    assert params["p1"] == 50
+    assert params["p2"] == 200
+    assert params["p3"] is True
+
+
+def test_query_count_with_joins():
+    """Test count method with JOINs."""
+    mock_db = MagicMock()
+
+    # Mock organization model
+    mock_org_model = MagicMock()
+    mock_org_model._table_name = "Organizations"
+
+    # Mock the database snapshot
+    mock_snapshot = MagicMock()
+    mock_db.snapshot.return_value.__enter__.return_value = mock_snapshot
+    mock_snapshot.execute_sql.return_value = [(25,)]
+
+    # Create query with join
+    query = Query(Product, mock_db)
+    query._joins = [
+        {
+            "model": mock_org_model,
+            "left_field": "OrganizationID",
+            "right_field": "OrganizationID",
+            "type": "INNER",
+        }
+    ]
+    query = query.filter(Active=True)
+
+    count = query.count()
+    assert count == 25
+
+    # Verify JOIN was included in count query
+    call_args = mock_snapshot.execute_sql.call_args
+    sql = call_args[0][0]
+
+    assert "SELECT COUNT(*) FROM Products" in sql
+    assert (
+        "INNER JOIN Organizations ON Products.OrganizationID = Organizations.OrganizationID" in sql
+    )
+    assert "WHERE Active = @p0" in sql
+
+
+def test_query_count_with_or_conditions():
+    """Test count with OR conditions."""
+    mock_db = MagicMock()
+
+    # Mock the database snapshot
+    mock_snapshot = MagicMock()
+    mock_db.snapshot.return_value.__enter__.return_value = mock_snapshot
+    mock_snapshot.execute_sql.return_value = [(30,)]
+
+    query = Query(Product, mock_db).filter_or({"ListPrice__lt": 50}, {"Category": "Sale"})
+
+    count = query.count()
+    assert count == 30
+
+    # Verify OR condition in SQL
+    call_args = mock_snapshot.execute_sql.call_args
+    sql = call_args[0][0]
+
+    assert "SELECT COUNT(*) FROM Products" in sql
+    assert "WHERE (" in sql
+    assert " OR " in sql
 
 
 @patch("spannery.query.Query._build_sql")
