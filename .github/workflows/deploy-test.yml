@@ -46,7 +46,7 @@ jobs:
       contents: write
     uses: Harbour-Enterprises/spannery/.github/workflows/publish-package.yml@main
     with:
-      bump_version: ${{ inputs.bump_version }}
+      bump_version: ${{ inputs.bump_version || true }}
       version_update: patch
       environment: development
     secrets: inherit
