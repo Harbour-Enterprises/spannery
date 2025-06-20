@@ -90,13 +90,6 @@ jobs:
         run: |
           bump2version ${{ inputs.version_update }}
 
-      - name: Commit and push changes
-        if: inputs.bump_version
-        run: |
-          git add .
-          git commit --allow-empty -m "chore: version update"
-          git push
-
       - name: Build package and publish
         env:
           PYPI_REPOSITORY: ${{ inputs.environment == 'production' && 'pypi' || 'testpypi' }}
@@ -110,3 +103,10 @@ jobs:
           --password ${PYPI_TOKEN} \
           --verbose \
           dist/*
+
+      - name: Commit and push changes
+        if: inputs.bump_version
+        run: |
+          git add .
+          git commit --allow-empty -m "chore: version update"
+          git push
