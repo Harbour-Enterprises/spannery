@@ -1,3 +1,4 @@
 build
 bump2version
 twine
+setuptools>=77.0.0
