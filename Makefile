@@ -111,12 +111,12 @@ freeze:
 			echo "Froze requirements in $$file"; \
 		fi \
 	done
-	@python src/update_pyproject.py
+	@python scripts/update_pyproject.py
 
 # Cleanup targets
 clean-build:
 	@echo "🗑️ Cleaning build artifacts..."
-	rm -rf src/dist build dist *.egg-info
+	rm -rf build dist *.egg-info
 
 clean: clean-build
 	@echo "🧹 Cleaning all artifacts..."
@@ -126,15 +126,15 @@ clean: clean-build
 # Build and publish targets
 build: clean-build
 	@echo "📦 Building package..."
-	python -m build src
+	python -m build
 
 publish-test: build
 	@echo "🧪 Publishing to test repository..."
-	python -m twine upload --repository harbour-orm-test src/dist/*
+	python -m twine upload --repository spannery-test dist/* --verbose
 
 publish: build
 	@echo "🚀 Publishing to main repository..."
-	python -m twine upload --repository harbour-orm src/dist/*
+	python -m twine upload --repository spannery dist/* --verbose
 
 # Version bump targets
 bump-patch:
@@ -149,25 +149,8 @@ bump-major:
 	@echo "📈 Bumping major version..."
 	bump2version major --verbose
 
-build:
-	@echo "\n> 🚀 Building and publishing a new package version...\n"
-	@echo "\n> 📦 Installing build dependencies...\n"
-	pip install -r requirements-build.txt
-	@echo "\n> 🗑️ Erasing previous build...\n"
-	rm -rf src/dist
-	@echo "\n> ⬆️ Bumping package version...\n"
-	bump2version patch --verbose
-	@echo "\n> 🔨 Building package...\n"
-	python -m build src
 
-publish-test: build
-	@echo "\n> 🌐 Uploading package to Test PyPi...\n"
-	python -m twine upload --repository spannery-test src/dist/*
-
-publish: build
-	@echo "\n> 🌐 Uploading package to PyPi...\n"
-	python -m twine upload --repository spannery src/dist/*
 
 .PHONY: help install install-build test benchmark tox tox-py-% diff-cover diff-cover-only \
 	fmt sort freeze clean clean-build build publish publish-test \
-	bump-patch bump-minor bump-major build publish publish-test
+	bump-patch bump-minor bump-major
