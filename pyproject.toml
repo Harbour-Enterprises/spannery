@@ -9,9 +9,8 @@ description = "A lightweight ORM for Google Cloud Spanner(Sorcer)y 🧙"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["google-cloud-spanner>=3.0.0"]
-license = "MIT"
-license-files = ["LICENSE"]
 classifiers = [
+    "License :: OSI Approved :: MIT License",
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
