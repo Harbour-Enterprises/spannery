@@ -19,7 +19,7 @@ from spannery.model import SpannerModel
 from spannery.query import Query
 from spannery.session import SpannerSession
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "SpannerModel",
