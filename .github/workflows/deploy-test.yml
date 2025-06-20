@@ -20,7 +20,6 @@ on:
       - "Makefile"
       - "examples/**"
       - ".bumpversion.cfg"
-      - "pyproject.toml"
 
 concurrency:
   group: staging-${{ github.event.pull_request.number || github.ref }} # Cancel previous staging deployments
